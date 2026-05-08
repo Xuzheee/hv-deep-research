@@ -6,6 +6,8 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.agent.schemas.report import ReportData
+from app.agent.state import ReportAgentState
 from app.api.schemas import HistoryReport, ProgressStep
 from app.db.models import Report, RunEvent
 
@@ -118,7 +120,27 @@ class ReportRepository:
         self.db.refresh(report)
         return report
 
-    def to_history_report(self, report: Report) -> HistoryReport:
+    def complete_from_graph_state(self, report_id: str, state: ReportAgentState) -> Report:
+        report = self._require_report(report_id)
+        artifact_paths = state.get("artifact_paths", {})
+        report.status = state.get("status", "completed")
+        report.progress_message = state.get("progress_message", "Report completed.")
+        report.report_data_path = artifact_paths.get("report_data_path", report.report_data_path)
+        report.evidence_cards_path = artifact_paths.get("evidence_cards_path", report.evidence_cards_path)
+        report.raw_sources_path = artifact_paths.get("raw_sources_path", report.raw_sources_path)
+        report.run_log_path = artifact_paths.get("run_log_path", report.run_log_path)
+        report.quality_check_path = artifact_paths.get("quality_check_path", report.quality_check_path)
+        report.source_count = len(state.get("candidate_sources", []))
+        report.evidence_count = len(state.get("evidence_cards", []))
+        if "quality_check" in state:
+            report.quality_score = state["quality_check"].quality_score
+            report.quality_warning = state["quality_check"].quality_warning
+        report.updated_at = utc_now()
+        self.db.commit()
+        self.db.refresh(report)
+        return report
+
+    def to_history_report(self, report: Report, include_report_data: bool = False) -> HistoryReport:
         return HistoryReport(
             report_id=report.report_id,
             topic=report.topic,
@@ -129,7 +151,7 @@ class ReportRepository:
             created_at=report.created_at,
             updated_at=report.updated_at,
             error_message=report.error_message,
-            report_data=None,
+            report_data=self._load_report_data(report) if include_report_data else None,
             progress_steps=[self._event_to_progress_step(event) for event in report.events],
             progress_message=report.progress_message or "",
         )
@@ -139,6 +161,14 @@ class ReportRepository:
         if report is None:
             raise ValueError(f"Report not found: {report_id}")
         return report
+
+    def _load_report_data(self, report: Report) -> ReportData | None:
+        if report.report_data_path is None:
+            return None
+        path = Path(report.report_data_path)
+        if not path.exists():
+            return None
+        return ReportData.model_validate_json(path.read_text(encoding="utf-8"))
 
     def _event_to_progress_step(self, event: RunEvent) -> ProgressStep:
         return ProgressStep(
