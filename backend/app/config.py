@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     backend_cors_origins: str = "http://localhost:5173"
     tavily_api_key: str = ""
     firecrawl_api_key: str = ""
+    reports_output_dir: str = "backend/app/outputs/reports"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
