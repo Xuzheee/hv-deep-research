@@ -2,9 +2,16 @@ import { useEffect, useState } from "react";
 import { ResearchInputBar } from "./components/ResearchInputBar";
 import { HistorySidebar } from "./components/HistorySidebar";
 import { ReportWorkspace } from "./components/ReportWorkspace";
-import { createReport, getReport, getReportStatus, listReports } from "./data/api";
+import { createReport, getDiagnosticsStatus, getReport, getReportStatus, listReports, runDiagnosticsValidation } from "./data/api";
 import { mockReports } from "./data/mockData";
-import type { HistoryReport, SubjectType, ReportStatus } from "./data/types";
+import type {
+  DiagnosticsProviderStatus,
+  DiagnosticsStatusResponse,
+  DiagnosticsValidationResponse,
+  HistoryReport,
+  SubjectType,
+  ReportStatus,
+} from "./data/types";
 
 function getActiveStatus(reports: HistoryReport[], activeId: string | null): ReportStatus | null {
   if (!activeId) return null;
@@ -25,13 +32,70 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown API error";
 }
 
+function labelForProvider(name: string): string {
+  const labels: Record<string, string> = {
+    tavily_search: "Tavily",
+    firecrawl_scrape: "Firecrawl",
+    llm: "LLM",
+  };
+  return labels[name] ?? name;
+}
+
+function DiagnosticsPill({ provider }: { provider: DiagnosticsProviderStatus }) {
+  const isReal = provider.mode === "real";
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-stone-200 bg-white px-2 py-1">
+      <span className="text-stone-500">{labelForProvider(provider.name)}</span>
+      <span className={isReal ? "font-medium text-emerald-700" : "font-medium text-stone-600"}>
+        {isReal ? "Real" : "Mock"}
+      </span>
+    </span>
+  );
+}
+
+function validationSummary(result: DiagnosticsValidationResponse | null): string | null {
+  if (!result) return null;
+  const allResults = [...result.tools, ...(result.llm ? [result.llm] : [])];
+  const passed = allResults.filter((item) => item.status === "passed").length;
+  const skipped = allResults.filter((item) => item.status === "skipped").length;
+  const failed = allResults.filter((item) => item.status === "failed").length;
+  return `${passed} passed / ${skipped} skipped / ${failed} failed`;
+}
+
 export default function App() {
   const [reports, setReports] = useState<HistoryReport[]>(mockReports);
   const [activeReportId, setActiveReportId] = useState<string | null>(mockReports[0].report_id);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [diagnosticsStatus, setDiagnosticsStatus] = useState<DiagnosticsStatusResponse | null>(null);
+  const [diagnosticsResult, setDiagnosticsResult] = useState<DiagnosticsValidationResponse | null>(null);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
 
   const activeReport = reports.find((r) => r.report_id === activeReportId) ?? null;
   const activeStatus = getActiveStatus(reports, activeReportId);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadDiagnostics() {
+      try {
+        const status = await getDiagnosticsStatus();
+        if (cancelled) return;
+        setDiagnosticsStatus(status);
+        setDiagnosticsError(null);
+      } catch (error) {
+        if (cancelled) return;
+        setDiagnosticsStatus(null);
+        setDiagnosticsError(`Diagnostics unavailable: ${errorMessage(error)}`);
+      }
+    }
+
+    loadDiagnostics();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -144,6 +208,19 @@ export default function App() {
     }
   }
 
+  async function handleRunDiagnostics() {
+    try {
+      setDiagnosticsLoading(true);
+      setDiagnosticsError(null);
+      const result = await runDiagnosticsValidation();
+      setDiagnosticsResult(result);
+    } catch (error) {
+      setDiagnosticsError(`Could not run diagnostics: ${errorMessage(error)}`);
+    } finally {
+      setDiagnosticsLoading(false);
+    }
+  }
+
   function handleRetry() {
     if (!activeReport) return;
     handleSubmit(activeReport.topic, activeReport.subject_type, true);
@@ -160,6 +237,35 @@ export default function App() {
       {connectionError && (
         <div className="px-5 py-2 bg-amber-50 border-b border-amber-200 text-[12px] text-amber-800 shrink-0">
           {connectionError}
+        </div>
+      )}
+
+      {(diagnosticsStatus || diagnosticsError) && (
+        <div className="px-5 py-2 bg-stone-50 border-b border-stone-200 text-[12px] text-stone-700 shrink-0 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-stone-900">Runtime</span>
+            {diagnosticsStatus?.tools.map((tool) => <DiagnosticsPill key={tool.name} provider={tool} />)}
+            {diagnosticsStatus && <DiagnosticsPill provider={diagnosticsStatus.llm} />}
+            {diagnosticsStatus?.llm.details.provider && (
+              <span className="text-stone-500">
+                {String(diagnosticsStatus.llm.details.provider)} / {String(diagnosticsStatus.llm.details.model ?? "unknown")}
+              </span>
+            )}
+            {diagnosticsError && <span className="text-amber-700">{diagnosticsError}</span>}
+            {validationSummary(diagnosticsResult) && (
+              <span className="text-stone-500">Last validation: {validationSummary(diagnosticsResult)}</span>
+            )}
+          </div>
+          {diagnosticsStatus && (
+            <button
+              type="button"
+              onClick={handleRunDiagnostics}
+              disabled={diagnosticsLoading}
+              className="rounded-full border border-stone-300 bg-white px-3 py-1 text-[12px] font-medium text-stone-700 disabled:opacity-60"
+            >
+              {diagnosticsLoading ? "Running..." : "Run live diagnostics"}
+            </button>
+          )}
         </div>
       )}
 

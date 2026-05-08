@@ -164,3 +164,31 @@ export interface HistoryReport {
   progress_steps: ProgressStep[];
   progress_message: string;
 }
+
+export interface DiagnosticsProviderStatus {
+  name: string;
+  configured: boolean;
+  mode: "mock" | "real";
+  details: Record<string, string | boolean | number | null>;
+}
+
+export interface DiagnosticsStatusResponse {
+  tools: DiagnosticsProviderStatus[];
+  llm: DiagnosticsProviderStatus;
+  live_tool_validation_enabled: boolean;
+  live_llm_validation_enabled: boolean;
+}
+
+export interface DiagnosticsValidationResult {
+  name: string;
+  configured: boolean;
+  status: "passed" | "skipped" | "failed";
+  ok: boolean;
+  message: string;
+  sample_count: number;
+}
+
+export interface DiagnosticsValidationResponse {
+  tools: DiagnosticsValidationResult[];
+  llm: DiagnosticsValidationResult | null;
+}

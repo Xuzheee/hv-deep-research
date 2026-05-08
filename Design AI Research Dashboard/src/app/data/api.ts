@@ -1,4 +1,4 @@
-import type { HistoryReport, SubjectType } from "./types";
+import type { DiagnosticsStatusResponse, DiagnosticsValidationResponse, HistoryReport, SubjectType } from "./types";
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
 const API_BASE_URL =
@@ -54,4 +54,12 @@ export function getReport(reportId: string): Promise<ReportDetailResponse> {
 
 export function getReportStatus(reportId: string): Promise<ReportStatusResponse> {
   return requestJson<ReportStatusResponse>(`/api/reports/${reportId}/status`);
+}
+
+export function getDiagnosticsStatus(): Promise<DiagnosticsStatusResponse> {
+  return requestJson<DiagnosticsStatusResponse>("/api/diagnostics/status");
+}
+
+export function runDiagnosticsValidation(): Promise<DiagnosticsValidationResponse> {
+  return requestJson<DiagnosticsValidationResponse>("/api/diagnostics/validate", { method: "POST" });
 }

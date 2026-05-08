@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes_diagnostics import router as diagnostics_router
 from app.api.routes_reports import router as reports_router
 from app.config import settings
 from app.db.models import Report, RunEvent
@@ -17,6 +18,7 @@ app.add_middleware(
 )
 
 Base.metadata.create_all(bind=engine, tables=[Report.__table__, RunEvent.__table__])
+app.include_router(diagnostics_router)
 app.include_router(reports_router)
 
 

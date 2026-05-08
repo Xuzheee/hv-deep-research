@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from app.agent.schemas.report import ReportData, SubjectType
@@ -44,3 +46,31 @@ class ReportStatusResponse(BaseModel):
     progress_message: str
     progress_steps: list[ProgressStep] = Field(default_factory=list)
     error_message: str | None = None
+
+
+class DiagnosticsProviderStatus(BaseModel):
+    name: str
+    configured: bool
+    mode: Literal["mock", "real"]
+    details: dict[str, str | bool | int | None] = Field(default_factory=dict)
+
+
+class DiagnosticsStatusResponse(BaseModel):
+    tools: list[DiagnosticsProviderStatus]
+    llm: DiagnosticsProviderStatus
+    live_tool_validation_enabled: bool
+    live_llm_validation_enabled: bool
+
+
+class DiagnosticsValidationResult(BaseModel):
+    name: str
+    configured: bool
+    status: Literal["passed", "skipped", "failed"]
+    ok: bool
+    message: str
+    sample_count: int = 0
+
+
+class DiagnosticsValidationResponse(BaseModel):
+    tools: list[DiagnosticsValidationResult]
+    llm: DiagnosticsValidationResult | None
