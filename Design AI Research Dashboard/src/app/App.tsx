@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ResearchInputBar } from "./components/ResearchInputBar";
 import { HistorySidebar } from "./components/HistorySidebar";
 import { ReportWorkspace } from "./components/ReportWorkspace";
+import { createReport, getReport, getReportStatus, listReports } from "./data/api";
 import { mockReports } from "./data/mockData";
 import type { HistoryReport, SubjectType, ReportStatus } from "./data/types";
 
@@ -11,63 +12,141 @@ function getActiveStatus(reports: HistoryReport[], activeId: string | null): Rep
   return r?.status ?? null;
 }
 
+function isTerminalStatus(status: ReportStatus | null): boolean {
+  return status === "completed" || status === "failed" || status === "empty";
+}
+
+function upsertReport(reports: HistoryReport[], report: HistoryReport): HistoryReport[] {
+  const withoutReport = reports.filter((r) => r.report_id !== report.report_id);
+  return [report, ...withoutReport];
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown API error";
+}
+
 export default function App() {
   const [reports, setReports] = useState<HistoryReport[]>(mockReports);
-  const [activeReportId, setActiveReportId] = useState<string | null>(
-    // Default to the first completed report for demo purposes
-    mockReports[0].report_id
-  );
+  const [activeReportId, setActiveReportId] = useState<string | null>(mockReports[0].report_id);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   const activeReport = reports.find((r) => r.report_id === activeReportId) ?? null;
   const activeStatus = getActiveStatus(reports, activeReportId);
 
-  function handleSubmit(topic: string, subjectType: SubjectType, _forceRefresh: boolean) {
-    const newId = `rpt_${Date.now()}_${topic.toLowerCase().replace(/\s+/g, "_").slice(0, 12)}`;
+  useEffect(() => {
+    let cancelled = false;
 
-    const newReport: HistoryReport = {
-      report_id: newId,
-      topic,
-      subject_type: subjectType,
-      status: "searching",
-      quality_warning: false,
-      quality_score: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      error_message: null,
-      report_data: null,
-      progress_steps: [
-        { step_id: "ps_01", label: "Initializing research run", status: "completed", timestamp: new Date().toLocaleTimeString("en-US", { hour12: false }) },
-        { step_id: "ps_02", label: "Planning research questions", status: "completed", timestamp: new Date().toLocaleTimeString("en-US", { hour12: false }) },
-        { step_id: "ps_03", label: "Collecting information (0/12 tool calls)", status: "running", message: `Searching for "${topic}"...` },
-        { step_id: "ps_04", label: "Filtering evidence cards", status: "pending" },
-        { step_id: "ps_05", label: "Running vertical analysis", status: "pending" },
-        { step_id: "ps_06", label: "Running horizontal analysis", status: "pending" },
-        { step_id: "ps_07", label: "Synthesizing report data", status: "pending" },
-        { step_id: "ps_08", label: "Quality check", status: "pending" },
-        { step_id: "ps_09", label: "Saving report artifacts", status: "pending" },
-      ],
-      progress_message: `Searching web for information on "${topic}"...`,
+    async function loadHistory() {
+      try {
+        const backendReports = await listReports();
+        if (cancelled) return;
+        setConnectionError(null);
+        setReports(backendReports);
+        setActiveReportId((currentId) => {
+          if (currentId && backendReports.some((report) => report.report_id === currentId)) {
+            return currentId;
+          }
+          return backendReports[0]?.report_id ?? null;
+        });
+      } catch (error) {
+        if (cancelled) return;
+        setConnectionError(`Backend unavailable: ${errorMessage(error)}. Showing prototype mock reports.`);
+        setReports(mockReports);
+        setActiveReportId(mockReports[0]?.report_id ?? null);
+      }
+    }
+
+    loadHistory();
+
+    return () => {
+      cancelled = true;
     };
+  }, []);
 
-    setReports((prev) => [newReport, ...prev]);
-    setActiveReportId(newId);
+  useEffect(() => {
+    if (!activeReport || activeReport.status !== "completed" || activeReport.report_data) return;
+
+    let cancelled = false;
+
+    async function loadReportDetail() {
+      try {
+        const detail = await getReport(activeReport.report_id);
+        if (cancelled) return;
+        setConnectionError(null);
+        setReports((prev) => upsertReport(prev, detail.report));
+      } catch (error) {
+        if (cancelled) return;
+        setConnectionError(`Could not load report detail: ${errorMessage(error)}`);
+      }
+    }
+
+    loadReportDetail();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeReport?.report_id, activeReport?.status, activeReport?.report_data]);
+
+  useEffect(() => {
+    if (!activeReport || isTerminalStatus(activeReport.status)) return;
+
+    let cancelled = false;
+
+    async function pollStatus() {
+      try {
+        const status = await getReportStatus(activeReport.report_id);
+        if (cancelled) return;
+        setConnectionError(null);
+        setReports((prev) =>
+          prev.map((report) =>
+            report.report_id === status.report_id
+              ? {
+                  ...report,
+                  status: status.status,
+                  progress_message: status.progress_message,
+                  progress_steps: status.progress_steps,
+                  error_message: status.error_message,
+                  updated_at: new Date().toISOString(),
+                }
+              : report
+          )
+        );
+
+        if (status.status === "completed") {
+          const detail = await getReport(status.report_id);
+          if (!cancelled) {
+            setReports((prev) => upsertReport(prev, detail.report));
+          }
+        }
+      } catch (error) {
+        if (cancelled) return;
+        setConnectionError(`Lost backend connection while polling: ${errorMessage(error)}`);
+      }
+    }
+
+    pollStatus();
+    const intervalId = window.setInterval(pollStatus, 2000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeReport?.report_id, activeReport?.status]);
+
+  async function handleSubmit(topic: string, subjectType: SubjectType, forceRefresh: boolean) {
+    try {
+      setConnectionError(null);
+      const detail = await createReport({ topic, subjectType, forceRefresh });
+      setReports((prev) => upsertReport(prev, detail.report));
+      setActiveReportId(detail.report.report_id);
+    } catch (error) {
+      setConnectionError(`Could not create report: ${errorMessage(error)}`);
+    }
   }
 
   function handleRetry() {
     if (!activeReport) return;
-    const updatedReport: HistoryReport = {
-      ...activeReport,
-      status: "searching",
-      error_message: null,
-      updated_at: new Date().toISOString(),
-      progress_steps: activeReport.progress_steps.map((s) =>
-        s.status === "failed" ? { ...s, status: "pending" as const } : s
-      ),
-      progress_message: `Retrying research for "${activeReport.topic}"...`,
-    };
-    setReports((prev) =>
-      prev.map((r) => (r.report_id === activeReport.report_id ? updatedReport : r))
-    );
+    handleSubmit(activeReport.topic, activeReport.subject_type, true);
   }
 
   function handleNewResearch() {
@@ -76,12 +155,15 @@ export default function App() {
 
   return (
     <div className="h-screen w-full bg-[#f5f2eb] flex flex-col overflow-hidden" style={{ minWidth: "1200px" }}>
-      {/* Top Input Bar */}
       <ResearchInputBar activeStatus={activeStatus} onSubmit={handleSubmit} />
 
-      {/* Main Layout: Sidebar + Workspace */}
+      {connectionError && (
+        <div className="px-5 py-2 bg-amber-50 border-b border-amber-200 text-[12px] text-amber-800 shrink-0">
+          {connectionError}
+        </div>
+      )}
+
       <div className="flex-1 flex overflow-hidden">
-        {/* History Sidebar */}
         <HistorySidebar
           reports={reports}
           activeReportId={activeReportId}
@@ -89,7 +171,6 @@ export default function App() {
           onNewResearch={handleNewResearch}
         />
 
-        {/* Report Workspace */}
         <main className="flex-1 bg-[#f5f2eb] flex flex-col overflow-hidden">
           <div className="flex-1 flex flex-col overflow-hidden bg-white border-t-0">
             <ReportWorkspace report={activeReport} onRetry={handleRetry} />
