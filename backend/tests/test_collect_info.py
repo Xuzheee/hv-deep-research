@@ -71,6 +71,29 @@ def test_research_planner_creates_commercial_depth_queries() -> None:
 
 
 
+def test_research_planner_uses_mixed_chinese_and_english_language() -> None:
+    state = research_planner(
+        {
+            "report_id": "rpt_plan_mix_test",
+            "topic": "Cursor AI",
+            "subject": "Cursor AI",
+            "subject_type": "product",
+            "run_log": [],
+        }
+    )
+
+    plan = state["research_plan"]
+
+    assert "横纵分析" in plan.research_motivation
+    assert "origin story" in " ".join(plan.vertical_questions)
+    assert "launch" in " ".join(plan.vertical_questions).lower()
+    assert "direct competitors" in " ".join(plan.horizontal_questions).lower()
+    assert "pricing" in " ".join(plan.horizontal_questions).lower()
+    assert "customer signals" in " ".join(plan.supplementary_questions).lower()
+
+
+
+
 def test_collect_info_dedupes_urls_and_caps_scrapes_per_domain(monkeypatch) -> None:
     now = datetime.now(UTC).isoformat()
     state = research_planner(

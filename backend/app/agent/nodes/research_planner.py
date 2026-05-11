@@ -8,20 +8,20 @@ def research_planner(state: ReportAgentState) -> ReportAgentState:
     state["research_plan"] = ResearchPlan(
         subject=subject,
         subject_type=state["subject_type"],
-        research_motivation=f"Build a commercial-quality evidence-backed report about {subject}.",
+        research_motivation=f"为 {subject} 生成一份 evidence-backed 的 commercial-quality 横纵分析研究报告。",
         vertical_questions=[
-            f"How did {subject} originate and evolve over time?",
-            f"What launch, adoption, funding, customer, or product milestones shaped {subject}?",
-            f"What major turning points changed {subject}'s market position or product direction?",
+            f"{subject} 的 origin story 是什么？它为什么会在那个时间点出现？",
+            f"{subject} 从 launch 到现在经历了哪些关键 milestone、turning point 和 product evolution？",
+            f"哪些 early decisions、strategic shifts 或 path dependencies 塑造了 {subject} 今天的位置？",
         ],
         horizontal_questions=[
-            f"What alternatives or competitors are relevant to {subject}?",
-            f"Where are the capability boundaries, limitations, and risks for {subject}?",
-            f"How do pricing, access, developer workflow fit, and enterprise readiness compare for {subject}?",
+            f"{subject} 当前的 direct competitors、indirect substitutes 或 alternative workflows 是什么？",
+            f"{subject} 的 capability boundaries、limitations 和 risks 分别在哪里？",
+            f"pricing、access、developer workflow fit、enterprise readiness 在同类方案里怎么比较？",
         ],
         supplementary_questions=[
-            f"What customer, community, developer, or market signals should be noted for {subject}?",
-            f"What credible risks or weaknesses should be considered for {subject}?",
+            f"有哪些 customer signals、community signals、developer signals 或 market signals 值得补充？",
+            f"有哪些 credible risks、weaknesses 或 controversy 需要在报告里明确说明？",
         ],
         initial_queries=[
             f"{subject} official product features pricing enterprise",
