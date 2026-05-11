@@ -123,6 +123,31 @@ export interface HorizontalTabData {
   recommendations: Recommendation[];
 }
 
+export interface NarrativeSection {
+  section_id: string;
+  title: string;
+  content: string;
+  supporting_evidence_ids: string[];
+}
+
+export interface FutureScenarios {
+  most_likely: string;
+  most_dangerous: string;
+  most_optimistic: string;
+  supporting_evidence_ids: string[];
+}
+
+export interface NarrativeReportData {
+  title: string;
+  one_sentence_definition: string;
+  opening_judgment: string;
+  vertical_story: NarrativeSection[];
+  horizontal_comparison: NarrativeSection[];
+  intersection_insights: NarrativeSection[];
+  future_scenarios: FutureScenarios;
+  source_notes: string[];
+}
+
 export interface ReportData {
   report_id: string;
   topic: string;
@@ -133,6 +158,7 @@ export interface ReportData {
   overview: OverviewTabData;
   vertical: VerticalTabData;
   horizontal: HorizontalTabData;
+  narrative_report?: NarrativeReportData | null;
   quality_warning: boolean;
   quality_issues: string[];
   quality_score: number;

@@ -5,6 +5,31 @@ from pydantic import BaseModel, Field
 from app.agent.schemas.evidence import EvidenceGroup, KeyFinding, RiskNote
 from app.agent.schemas.source import ConfidenceLevel
 
+
+class NarrativeSection(BaseModel):
+    section_id: str
+    title: str
+    content: str
+    supporting_evidence_ids: list[str] = Field(default_factory=list)
+
+
+class FutureScenarios(BaseModel):
+    most_likely: str
+    most_dangerous: str
+    most_optimistic: str
+    supporting_evidence_ids: list[str] = Field(default_factory=list)
+
+
+class NarrativeReportData(BaseModel):
+    title: str
+    one_sentence_definition: str
+    opening_judgment: str
+    vertical_story: list[NarrativeSection] = Field(default_factory=list)
+    horizontal_comparison: list[NarrativeSection] = Field(default_factory=list)
+    intersection_insights: list[NarrativeSection] = Field(default_factory=list)
+    future_scenarios: FutureScenarios
+    source_notes: list[str] = Field(default_factory=list)
+
 SubjectType = Literal["product", "company", "concept", "person", "technology", "other"]
 UpdateType = Literal[
     "product_launch",
@@ -108,6 +133,7 @@ class ReportData(BaseModel):
     overview: OverviewTabData
     vertical: VerticalTabData
     horizontal: HorizontalTabData
+    narrative_report: NarrativeReportData | None = None
     quality_warning: bool = False
     quality_issues: list[str] = Field(default_factory=list)
     quality_score: int = Field(ge=0, le=100)

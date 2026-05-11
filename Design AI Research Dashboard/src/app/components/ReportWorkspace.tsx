@@ -15,7 +15,7 @@ import {
   FileText,
 } from "lucide-react";
 import * as Tabs from "@radix-ui/react-tabs";
-import type { HistoryReport } from "../data/types";
+import type { HistoryReport, NarrativeReportData, FutureScenarios } from "../data/types";
 import { ProgressPanel } from "./ProgressPanel";
 import { OverviewTab } from "./tabs/OverviewTab";
 import { VerticalAnalysisTab } from "./tabs/VerticalAnalysisTab";
@@ -218,7 +218,220 @@ const REPORT_TABS = [
   { value: "overview", label: "Overview", icon: <LayoutDashboard className="w-3.5 h-3.5" /> },
   { value: "vertical", label: "Vertical Analysis", icon: <TrendingUp className="w-3.5 h-3.5" /> },
   { value: "horizontal", label: "Horizontal Analysis", icon: <GitCompare className="w-3.5 h-3.5" /> },
+  { value: "narrative", label: "Narrative", icon: <FileText className="w-3.5 h-3.5" /> },
 ];
+
+const LIKELIHOOD_STYLES: Record<"high" | "medium" | "low", string> = {
+  high: "bg-[#e8f0e8] text-[#3a6048]",
+  medium: "bg-amber-50 text-amber-700",
+  low: "bg-red-50 text-red-700",
+};
+
+function EvidenceChip({ id }: { id: string }) {
+  return (
+    <span className="inline-flex items-center text-[10px] text-[#6b6560] bg-[#eae6de] border border-[#ddd8cd] rounded px-1.5 py-0.5 font-mono cursor-default hover:bg-[#ddd8cd] transition-colors">
+      {id}
+    </span>
+  );
+}
+
+function NarrativeSectionCard({ title, content, evidenceIds }: { title: string; content: string; evidenceIds: string[] }) {
+  return (
+    <div className="bg-white border border-[#ddd8cd] rounded-md px-4 py-4">
+      <div className="flex items-start gap-2 mb-2">
+        <div className="flex-1 min-w-0">
+          <h4 className="text-[13px] text-[#1e293b]" style={{ fontWeight: 500 }}>
+            {title}
+          </h4>
+        </div>
+      </div>
+      <p className="text-[12px] text-[#44403c] leading-relaxed">{content}</p>
+      {evidenceIds.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-3">
+          {evidenceIds.map((id) => (
+            <EvidenceChip key={id} id={id} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FutureScenarioCard({ scenario }: { scenario: FutureScenarios }) {
+  return (
+    <div className="bg-white border border-[#ddd8cd] rounded-md px-4 py-4">
+      <div className="flex items-start gap-2 mb-2 flex-wrap">
+        <h4 className="text-[13px] text-[#1e293b]" style={{ fontWeight: 500 }}>
+          {scenario.most_likely}
+        </h4>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded ${LIKELIHOOD_STYLES.high}`}>
+          Most likely
+        </span>
+      </div>
+      <p className="text-[12px] text-[#44403c] leading-relaxed">{scenario.most_dangerous}</p>
+      <p className="text-[12px] text-[#44403c] leading-relaxed mt-2">{scenario.most_optimistic}</p>
+      {scenario.supporting_evidence_ids.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-3">
+          {scenario.supporting_evidence_ids.map((id) => (
+            <EvidenceChip key={id} id={id} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NarrativeTab({ data }: { data: NarrativeReportData | null | undefined }) {
+  if (!data) {
+    return (
+      <div className="flex items-center justify-center py-16 text-center">
+        <div>
+          <FileText className="w-8 h-8 text-[#c8c0b4] mx-auto mb-2" />
+          <p className="text-[13px] text-[#a8a29e]">Narrative report not available</p>
+          <p className="text-[12px] text-[#c8c0b4] mt-1">The report has not generated the longform narrative layer yet</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <section>
+        <div className="flex items-center gap-1.5 mb-2">
+          <FileText className="w-3.5 h-3.5 text-[#a8a29e]" />
+          <h3 className="text-[11px] text-[#6b6560] uppercase tracking-wider" style={{ fontWeight: 600 }}>
+            Narrative Report
+          </h3>
+        </div>
+        <div className="bg-white border border-[#ddd8cd] rounded-md px-5 py-4 space-y-3">
+          <div>
+            <p className="text-[11px] text-[#a8a29e] uppercase tracking-wider mb-1" style={{ fontWeight: 600 }}>
+              Definition
+            </p>
+            <p className="text-[13px] text-[#44403c] leading-relaxed">{data.one_sentence_definition}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-[#a8a29e] uppercase tracking-wider mb-1" style={{ fontWeight: 600 }}>
+              Opening Judgment
+            </p>
+            <p className="text-[13px] text-[#44403c] leading-relaxed">{data.opening_judgment}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-[#a8a29e] uppercase tracking-wider mb-1" style={{ fontWeight: 600 }}>
+              Source Notes
+            </p>
+            <ul className="space-y-1">
+              {data.source_notes.map((note) => (
+                <li key={note} className="text-[12px] text-[#78716c] leading-snug">
+                  {note}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      {data.vertical_story.length > 0 && (
+        <section>
+          <div className="flex items-center gap-1.5 mb-2">
+            <TrendingUp className="w-3.5 h-3.5 text-[#a8a29e]" />
+            <h3 className="text-[11px] text-[#6b6560] uppercase tracking-wider" style={{ fontWeight: 600 }}>
+              Vertical Story
+            </h3>
+          </div>
+          <div className="space-y-2">
+            {data.vertical_story.map((section) => (
+              <NarrativeSectionCard
+                key={section.section_id}
+                title={section.title}
+                content={section.content}
+                evidenceIds={section.supporting_evidence_ids}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {data.horizontal_comparison.length > 0 && (
+        <section>
+          <div className="flex items-center gap-1.5 mb-2">
+            <GitCompare className="w-3.5 h-3.5 text-[#a8a29e]" />
+            <h3 className="text-[11px] text-[#6b6560] uppercase tracking-wider" style={{ fontWeight: 600 }}>
+              Horizontal Comparison
+            </h3>
+          </div>
+          <div className="space-y-2">
+            {data.horizontal_comparison.map((section) => (
+              <NarrativeSectionCard
+                key={section.section_id}
+                title={section.title}
+                content={section.content}
+                evidenceIds={section.supporting_evidence_ids}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {data.intersection_insights.length > 0 && (
+        <section>
+          <div className="flex items-center gap-1.5 mb-2">
+            <FileText className="w-3.5 h-3.5 text-[#a8a29e]" />
+            <h3 className="text-[11px] text-[#6b6560] uppercase tracking-wider" style={{ fontWeight: 600 }}>
+              Intersection Insights
+            </h3>
+          </div>
+          <div className="space-y-2">
+            {data.intersection_insights.map((section) => (
+              <NarrativeSectionCard
+                key={section.section_id}
+                title={section.title}
+                content={section.content}
+                evidenceIds={section.supporting_evidence_ids}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section>
+        <div className="flex items-center gap-1.5 mb-2">
+          <FileText className="w-3.5 h-3.5 text-[#a8a29e]" />
+          <h3 className="text-[11px] text-[#6b6560] uppercase tracking-wider" style={{ fontWeight: 600 }}>
+            Future Scenarios
+          </h3>
+        </div>
+        <div className="bg-white border border-[#ddd8cd] rounded-md px-5 py-4 space-y-4">
+          <div>
+            <p className="text-[11px] text-[#a8a29e] uppercase tracking-wider mb-1" style={{ fontWeight: 600 }}>
+              Most Likely
+            </p>
+            <p className="text-[13px] text-[#44403c] leading-relaxed">{data.future_scenarios.most_likely}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-[#a8a29e] uppercase tracking-wider mb-1" style={{ fontWeight: 600 }}>
+              Most Dangerous
+            </p>
+            <p className="text-[13px] text-[#44403c] leading-relaxed">{data.future_scenarios.most_dangerous}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-[#a8a29e] uppercase tracking-wider mb-1" style={{ fontWeight: 600 }}>
+              Most Optimistic
+            </p>
+            <p className="text-[13px] text-[#44403c] leading-relaxed">{data.future_scenarios.most_optimistic}</p>
+          </div>
+          {data.future_scenarios.supporting_evidence_ids.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {data.future_scenarios.supporting_evidence_ids.map((id) => (
+                <EvidenceChip key={id} id={id} />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
 
 function CompletedReport({ report }: { report: HistoryReport }) {
   const [activeTab, setActiveTab] = useState("overview");
@@ -350,6 +563,10 @@ function CompletedReport({ report }: { report: HistoryReport }) {
 
           <Tabs.Content value="horizontal" className="px-6 py-5 outline-none">
             <HorizontalAnalysisTab data={rd.horizontal} />
+          </Tabs.Content>
+
+          <Tabs.Content value="narrative" className="px-6 py-5 outline-none">
+            <NarrativeTab data={rd.narrative_report} />
           </Tabs.Content>
         </div>
       </Tabs.Root>

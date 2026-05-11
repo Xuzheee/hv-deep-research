@@ -18,6 +18,60 @@ const gpt4oReport: ReportData = {
     "Pricing data may have changed post-retrieval window",
     "Internal benchmark results not independently verifiable",
   ],
+  narrative_report: {
+    title: "GPT-4o Deep Narrative",
+    one_sentence_definition:
+      "GPT-4o is OpenAI's multimodal flagship that combines real-time interaction with broad consumer distribution.",
+    opening_judgment:
+      "Its competitive position comes less from pure model leadership than from how OpenAI bundled capability, access, and workflow fit.",
+    vertical_story: [
+      {
+        section_id: "narrative_v_01",
+        title: "From text scaling to native multimodality",
+        content:
+          "GPT-4o follows a multi-year path from text-only scaling to a joint audio-image-text model that removed the latency and fragmentation of older pipelines.",
+        supporting_evidence_ids: ["ev_001", "ev_002"],
+      },
+      {
+        section_id: "narrative_v_02",
+        title: "Distribution became the product moat",
+        content:
+          "Free-tier access and chat-first packaging turned the model into a consumer surface as much as a technical one.",
+        supporting_evidence_ids: ["ev_003", "ev_012"],
+      },
+    ],
+    horizontal_comparison: [
+      {
+        section_id: "narrative_h_01",
+        title: "Balanced general-purpose tier",
+        content:
+          "GPT-4o sits between premium reasoning systems and cost-optimized variants, where distribution and ecosystem fit matter more than benchmark dominance.",
+        supporting_evidence_ids: ["ev_030", "ev_031"],
+      },
+    ],
+    intersection_insights: [
+      {
+        section_id: "narrative_i_01",
+        title: "Architecture shaped positioning",
+        content:
+          "The same choices that improved access and multimodality also defined the competitive frame around balanced performance and consumer reach.",
+        supporting_evidence_ids: ["ev_001", "ev_003", "ev_030"],
+      },
+    ],
+    future_scenarios: {
+      most_likely:
+        "GPT-4o stays the mainstream default while specialized reasoning and open-source options absorb adjacent workloads.",
+      most_dangerous:
+        "Competitors match the user experience while offering better economics, reducing the value of GPT-4o's distribution advantage.",
+      most_optimistic:
+        "GPT-4o becomes the default interaction layer for multimodal knowledge work across consumer and enterprise use cases.",
+      supporting_evidence_ids: ["ev_003", "ev_030", "ev_054"],
+    },
+    source_notes: [
+      "OpenAI release notes and launch coverage",
+      "Competitive positioning derived from the report's strongest evidence cards",
+    ],
+  },
   overview: {
     product_overview:
       "GPT-4o (\"omni\") is OpenAI's flagship multimodal large language model, released in May 2024. It unifies text, audio, and image modalities within a single end-to-end trained model—a structural departure from the previous GPT-4 Turbo architecture which processed modalities via separate pipelines. GPT-4o achieves text and code performance on par with GPT-4 Turbo while adding real-time voice interaction with sub-300ms latency and native vision understanding. As of Q1 2026, GPT-4o remains the primary production model powering ChatGPT's free tier, with over 100 million daily active users. It represents OpenAI's strategy of combining frontier capability with accessible distribution.",

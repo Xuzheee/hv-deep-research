@@ -70,7 +70,7 @@ def _llm_horizontal(state: ReportAgentState) -> HorizontalTabData:
     prompt = build_horizontal_analysis_prompt(state["subject"], evidence_cards_json)
     horizontal = complete_json(prompt, HorizontalTabData, system_prompt=SYSTEM_PROMPT)
     valid_ids = {card.evidence_id for card in state["evidence_cards"]}
-    return horizontal.model_copy(
+    filtered = horizontal.model_copy(
         update={
             "competitor_matrix": [
                 item.model_copy(
@@ -96,6 +96,17 @@ def _llm_horizontal(state: ReportAgentState) -> HorizontalTabData:
                 )
                 for recommendation in horizontal.recommendations
             ],
+        }
+    )
+    if filtered.competitor_matrix:
+        return filtered
+    return _deterministic_horizontal(state).model_copy(
+        update={
+            "capability_boundaries": filtered.capability_boundaries or _deterministic_horizontal(state).capability_boundaries,
+            "recommendations": filtered.recommendations or _deterministic_horizontal(state).recommendations,
+            "full_text": filtered.full_text or _deterministic_horizontal(state).full_text,
+            "competitor_scenario": filtered.competitor_scenario or _deterministic_horizontal(state).competitor_scenario,
+            "positioning_summary": filtered.positioning_summary or _deterministic_horizontal(state).positioning_summary,
         }
     )
 

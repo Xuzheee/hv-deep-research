@@ -74,8 +74,44 @@ def test_reports_api_returns_status_progress_steps() -> None:
     assert status["progress_message"] == "Saved report artifacts."
     assert [step["label"] for step in status["progress_steps"]] == [
         "create_report",
-        "research",
+        "initialize_report_run",
+        "initialize_report_run",
+        "research_planner",
+        "research_planner",
+        "collect_info",
+        "collect_info",
+        "evidence_filter",
+        "evidence_filter",
+        "vertical_analysis",
+        "vertical_analysis",
+        "horizontal_analysis",
+        "horizontal_analysis",
+        "synthesis_report_data",
+        "synthesis_report_data",
+        "quality_check",
+        "quality_check",
         "persist_report_artifacts",
+        "persist_report_artifacts",
+    ]
+    assert [step["status"] for step in status["progress_steps"][1:]] == [
+        "running",
+        "completed",
+        "running",
+        "completed",
+        "running",
+        "completed",
+        "running",
+        "completed",
+        "running",
+        "completed",
+        "running",
+        "completed",
+        "running",
+        "completed",
+        "running",
+        "completed",
+        "running",
+        "completed",
     ]
 
 
@@ -90,7 +126,28 @@ def test_reports_api_returns_404_for_missing_report() -> None:
 
 
 def make_test_runner():
-    def run(state):
+    def run(state, on_node_event=None):
+        def emit(node_name: str, status: str, message: str) -> None:
+            if on_node_event is not None:
+                on_node_event(node_name, status, message)
+
+        emit("initialize_report_run", "running", "Initializing report run.")
+        emit("initialize_report_run", "completed", "Initialized report run.")
+        emit("research_planner", "running", "Planning source strategy.")
+        emit("research_planner", "completed", "Planned source strategy.")
+        emit("collect_info", "running", "Collecting source material.")
+        emit("collect_info", "completed", "Collected source material.")
+        emit("evidence_filter", "running", "Filtering evidence.")
+        emit("evidence_filter", "completed", "Filtered evidence.")
+        emit("vertical_analysis", "running", "Running vertical analysis.")
+        emit("vertical_analysis", "completed", "Ran vertical analysis.")
+        emit("horizontal_analysis", "running", "Running horizontal analysis.")
+        emit("horizontal_analysis", "completed", "Ran horizontal analysis.")
+        emit("synthesis_report_data", "running", "Synthesizing frontend-compatible report data.")
+        emit("synthesis_report_data", "completed", "Synthesized frontend-compatible report data.")
+        emit("quality_check", "running", "Checking report quality.")
+        emit("quality_check", "completed", "Checked report quality.")
+        emit("persist_report_artifacts", "running", "Saving report artifacts.")
         from app.agent.schemas.evidence import EvidenceCard
         from app.agent.schemas.quality import QualityCheckResult
         from app.agent.schemas.report import (
@@ -221,6 +278,7 @@ def make_test_runner():
             run_log=[],
             quality_check=quality_check,
         )
+        emit("persist_report_artifacts", "completed", "Saved report artifacts.")
         state.update(
             {
                 "status": "completed",

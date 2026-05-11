@@ -1,7 +1,7 @@
 from pydantic import ValidationError
 
 from app.agent.schemas.evidence import EvidenceCard
-from app.agent.schemas.report import ReportData
+from app.agent.schemas.report import NarrativeReportData, ReportData
 
 
 def sample_report_data() -> dict:
@@ -130,6 +130,74 @@ def test_report_data_matches_frontend_shape() -> None:
     assert dumped["overview"]["key_findings"][0]["supporting_evidence_ids"] == ["ev_1"]
     assert dumped["horizontal"]["recommendations"][0]["priority"] == "medium"
     assert dumped["quality_score"] == 88
+
+
+def test_report_data_accepts_narrative_report_for_web_output() -> None:
+    payload = sample_report_data()
+    payload["narrative_report"] = {
+        "title": "GPT-4o 横纵分析报告",
+        "one_sentence_definition": "GPT-4o is a multimodal assistant positioned around real-time interaction.",
+        "opening_judgment": "Its importance comes from shifting the assistant interface toward lower-latency multimodal work.",
+        "vertical_story": [
+            {
+                "section_id": "vertical_1",
+                "title": "From model release to interaction layer",
+                "content": "GPT-4o's launch connected prior multimodal work to a faster consumer-facing assistant experience.",
+                "supporting_evidence_ids": ["ev_1"],
+            }
+        ],
+        "horizontal_comparison": [
+            {
+                "section_id": "horizontal_1",
+                "title": "The competitive frame",
+                "content": "GPT-4o competes with other multimodal assistants on latency, access, and workflow fit.",
+                "supporting_evidence_ids": ["ev_1"],
+            }
+        ],
+        "intersection_insights": [
+            {
+                "section_id": "insight_1",
+                "title": "Speed became positioning",
+                "content": "The historical push toward multimodality shaped its current competitive narrative around interaction speed.",
+                "supporting_evidence_ids": ["ev_1"],
+            }
+        ],
+        "future_scenarios": {
+            "most_likely": "GPT-4o remains a mainstream multimodal assistant while competitors narrow the feature gap.",
+            "most_dangerous": "Competing assistants match the interaction layer while offering stronger enterprise controls.",
+            "most_optimistic": "It becomes the default interface for everyday multimodal knowledge work.",
+            "supporting_evidence_ids": ["ev_1"],
+        },
+        "source_notes": ["Launch evidence from example.com."],
+    }
+
+    dumped = ReportData.model_validate(payload).model_dump()
+
+    assert dumped["narrative_report"]["vertical_story"][0]["supporting_evidence_ids"] == ["ev_1"]
+    assert dumped["narrative_report"]["future_scenarios"]["most_likely"].startswith("GPT-4o")
+
+
+def test_narrative_report_requires_evidence_backed_sections() -> None:
+    payload = {
+        "title": "GPT-4o 横纵分析报告",
+        "one_sentence_definition": "GPT-4o is a multimodal assistant.",
+        "opening_judgment": "Its importance is in the interface shift.",
+        "vertical_story": [],
+        "horizontal_comparison": [],
+        "intersection_insights": [],
+        "future_scenarios": {
+            "most_likely": "Likely outcome.",
+            "most_dangerous": "Dangerous outcome.",
+            "most_optimistic": "Optimistic outcome.",
+            "supporting_evidence_ids": [],
+        },
+        "source_notes": [],
+    }
+
+    narrative = NarrativeReportData.model_validate(payload)
+
+    assert narrative.title == "GPT-4o 横纵分析报告"
+    assert narrative.future_scenarios.most_likely == "Likely outcome."
 
 
 def test_report_data_rejects_invalid_subject_type() -> None:

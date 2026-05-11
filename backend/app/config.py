@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = "https://api.deepseek.com"
     llm_model: str = "deepseek-chat"
-    llm_timeout_seconds: int = 60
+    llm_timeout_seconds: int = 180
     llm_temperature: float = 0.2
     run_real_tool_tests: bool = False
     run_real_llm_tests: bool = False

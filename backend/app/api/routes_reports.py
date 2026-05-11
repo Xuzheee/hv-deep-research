@@ -3,7 +3,7 @@ from collections.abc import Callable
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.agent.graph import run_report_graph
+from app.agent.graph import run_report_graph, run_report_graph_observed
 from app.agent.state import ReportAgentState
 from app.api.schemas import CreateReportRequest, HistoryReport, ReportDetail, ReportStatusResponse
 from app.config import settings
@@ -12,8 +12,20 @@ from app.db.session import SessionLocal, get_db
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
-ReportRunner = Callable[[ReportAgentState], ReportAgentState]
-_report_runner: ReportRunner = run_report_graph
+ReportRunner = Callable[..., ReportAgentState]
+_report_runner: ReportRunner = run_report_graph_observed
+
+NODE_REPORT_STATUS = {
+    "initialize_report_run": "planning",
+    "research_planner": "planning",
+    "collect_info": "searching",
+    "evidence_filter": "filtering",
+    "vertical_analysis": "analyzing_vertical",
+    "horizontal_analysis": "analyzing_horizontal",
+    "synthesis_report_data": "synthesizing",
+    "quality_check": "quality_checking",
+    "persist_report_artifacts": "persisting",
+}
 
 
 def set_report_runner(runner: ReportRunner) -> None:
@@ -22,7 +34,7 @@ def set_report_runner(runner: ReportRunner) -> None:
 
 
 def reset_report_runner() -> None:
-    set_report_runner(run_report_graph)
+    set_report_runner(run_report_graph_observed)
 
 
 def get_repository(db: Session = Depends(get_db)) -> ReportRepository:
@@ -79,19 +91,27 @@ def run_report_background(report_id: str) -> None:
         report = repository.get_report(report_id)
         if report is None:
             return
+
+        def record_node_event(node_name: str, event_status: str, message: str) -> None:
+            if event_status == "running":
+                repository.update_status(report_id, NODE_REPORT_STATUS[node_name], message)
+            elif event_status == "failed":
+                repository.update_status(report_id, "failed", "Report generation failed.", error_message=message)
+            repository.insert_event(report_id, node_name, event_status, message)
+
         repository.update_status(report_id, "planning", "Starting research plan.")
-        repository.insert_event(report_id, "research", "running", "Research workflow started.")
-        result = _report_runner(
-            {
-                "report_id": report.report_id,
-                "topic": report.topic,
-                "subject": report.subject or report.topic,
-                "subject_type": report.subject_type or "other",
-                "reports_output_dir": settings.reports_output_dir,
-            }
-        )
+        initial_state = {
+            "report_id": report.report_id,
+            "topic": report.topic,
+            "subject": report.subject or report.topic,
+            "subject_type": report.subject_type or "other",
+            "reports_output_dir": settings.reports_output_dir,
+        }
+        if _report_runner is run_report_graph:
+            result = run_report_graph_observed(initial_state, record_node_event)
+        else:
+            result = _report_runner(initial_state, record_node_event)
         repository.complete_from_graph_state(report_id, result)
-        repository.insert_event(report_id, "persist_report_artifacts", "completed", result.get("progress_message"))
     except Exception as exc:
         repository.update_status(report_id, "failed", "Report generation failed.", error_message=str(exc))
         repository.insert_event(report_id, "research", "failed", str(exc))

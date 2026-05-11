@@ -1,3 +1,5 @@
+import httpx
+import pytest
 from pydantic import BaseModel
 
 from app.agent.llm import client
@@ -17,6 +19,7 @@ def test_settings_default_to_mock_llm_and_no_real_integration_tests() -> None:
     assert settings.llm_api_key == ""
     assert settings.llm_base_url == "https://api.deepseek.com"
     assert settings.llm_model == "deepseek-chat"
+    assert settings.llm_timeout_seconds == 180
     assert settings.run_real_tool_tests is False
     assert settings.run_real_llm_tests is False
 
@@ -79,6 +82,87 @@ def test_complete_json_posts_openai_compatible_request(monkeypatch) -> None:
     assert captured["json"]["response_format"] == {"type": "json_object"}
     assert captured["json"]["messages"][0] == {"role": "system", "content": "System"}
     assert captured["timeout"] == 12
+
+
+def test_complete_json_retries_once_on_timeout_then_succeeds(monkeypatch) -> None:
+    calls = []
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": '{"name":"ok"}'}}]}
+
+    def fake_post(url, headers, json, timeout):
+        calls.append(url)
+        if len(calls) == 1:
+            raise httpx.ReadTimeout("timed out")
+        return FakeResponse()
+
+    monkeypatch.setattr(client.settings, "llm_provider", "openai_compatible")
+    monkeypatch.setattr(client.settings, "llm_api_key", "test-key")
+    monkeypatch.setattr(client.settings, "llm_base_url", "https://llm.example.com")
+    monkeypatch.setattr(client.httpx, "post", fake_post)
+
+    result = client.complete_json("Return JSON.", TinyModel)
+
+    assert result.name == "ok"
+    assert len(calls) == 2
+
+
+
+def test_complete_json_does_not_retry_bad_request(monkeypatch) -> None:
+    calls = []
+
+    class FakeResponse:
+        status_code = 400
+
+        def raise_for_status(self) -> None:
+            request = httpx.Request("POST", "https://llm.example.com/v1/chat/completions")
+            response = httpx.Response(400, request=request)
+            raise httpx.HTTPStatusError("bad request", request=request, response=response)
+
+    def fake_post(url, headers, json, timeout):
+        calls.append(url)
+        return FakeResponse()
+
+    monkeypatch.setattr(client.settings, "llm_provider", "openai_compatible")
+    monkeypatch.setattr(client.settings, "llm_api_key", "test-key")
+    monkeypatch.setattr(client.settings, "llm_base_url", "https://llm.example.com")
+    monkeypatch.setattr(client.httpx, "post", fake_post)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        client.complete_json("Return JSON.", TinyModel)
+
+    assert len(calls) == 1
+
+
+
+def test_complete_json_does_not_retry_invalid_model_json(monkeypatch) -> None:
+    calls = []
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": "not json"}}]}
+
+    def fake_post(url, headers, json, timeout):
+        calls.append(url)
+        return FakeResponse()
+
+    monkeypatch.setattr(client.settings, "llm_provider", "openai_compatible")
+    monkeypatch.setattr(client.settings, "llm_api_key", "test-key")
+    monkeypatch.setattr(client.settings, "llm_base_url", "https://llm.example.com")
+    monkeypatch.setattr(client.httpx, "post", fake_post)
+
+    with pytest.raises(ValueError, match="not valid JSON"):
+        client.complete_json("Return JSON.", TinyModel)
+
+    assert len(calls) == 1
+
 
 
 def test_analysis_prompts_include_evidence_and_injection_constraints() -> None:

@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 SourceTier = Literal[
     "tier_1_primary",
@@ -42,6 +42,19 @@ class CollectedNote(BaseModel):
     intended_dimension: Dimension
     source_type_guess: str | None = None
     retrieved_at: str
+
+
+class SelectedPassage(BaseModel):
+    quote: str
+    why_it_matters: str
+    dimension: Literal["vertical", "horizontal", "both"]
+    relevance_score: int = Field(ge=0, le=100)
+
+
+class RelevanceSelectionResult(BaseModel):
+    is_relevant: bool
+    relevance_reason: str
+    selected_passages: list[SelectedPassage]
 
 
 class SourceItem(BaseModel):
