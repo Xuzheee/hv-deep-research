@@ -3,8 +3,8 @@ from app.agent.state import ReportAgentState
 from app.agent.tools.firecrawl_tool import scrape_firecrawl
 from app.agent.tools.tavily_tool import search_tavily
 
-MAX_TOOL_CALLS = 18
-MAX_SCRAPES_PER_DOMAIN = 2
+MAX_TOOL_CALLS = 35
+MAX_SCRAPES_PER_DOMAIN = 3
 
 
 def _append_collection_warning(state: ReportAgentState, tool_name: str, exc: Exception) -> None:
@@ -29,7 +29,7 @@ def collect_info(state: ReportAgentState) -> ReportAgentState:
         if tool_calls >= MAX_TOOL_CALLS:
             break
         try:
-            query_sources = search_tavily(query, max_results=4)
+            query_sources = search_tavily(query, max_results=6)
         except Exception as exc:
             _append_collection_warning(state, "tavily_search", exc)
             tool_calls += 1

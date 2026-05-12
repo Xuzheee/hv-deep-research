@@ -56,7 +56,7 @@ def _has_enough_text(text: str | None, min_length: int = 20) -> bool:
 def _is_usable_evidence_card(card: EvidenceCard, note: CollectedNote) -> bool:
     if card.url != note.url:
         return False
-    if card.relevance_score < 50:
+    if card.relevance_score < 40:
         return False
     if not all(
         [

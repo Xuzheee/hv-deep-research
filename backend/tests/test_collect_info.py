@@ -123,7 +123,7 @@ def test_collect_info_dedupes_urls_and_caps_scrapes_per_domain(monkeypatch) -> N
         )
 
     def fake_search(query: str, max_results: int):
-        assert max_results == 4
+        assert max_results == 6
         return [
             source("https://example.com/a", "example.com"),
             source("https://example.com/a", "example.com"),
