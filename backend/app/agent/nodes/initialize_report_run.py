@@ -7,5 +7,8 @@ def initialize_report_run(state: ReportAgentState) -> ReportAgentState:
     state["candidate_sources"] = []
     state["collected_notes"] = []
     state["evidence_cards"] = []
+    state["evidence_groups"] = []
+    state["cross_insights"] = []
+    state["quality_remediation_attempted"] = False
     state["run_log"] = []
     return ProgressReporter().report(state, "planning", "Initializing research run.")

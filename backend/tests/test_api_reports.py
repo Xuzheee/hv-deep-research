@@ -86,6 +86,8 @@ def test_reports_api_returns_status_progress_steps() -> None:
         "vertical_analysis",
         "horizontal_analysis",
         "horizontal_analysis",
+        "cross_insights",
+        "cross_insights",
         "synthesis_report_data",
         "synthesis_report_data",
         "quality_check",
@@ -94,6 +96,8 @@ def test_reports_api_returns_status_progress_steps() -> None:
         "persist_report_artifacts",
     ]
     assert [step["status"] for step in status["progress_steps"][1:]] == [
+        "running",
+        "completed",
         "running",
         "completed",
         "running",
@@ -143,6 +147,8 @@ def make_test_runner():
         emit("vertical_analysis", "completed", "Ran vertical analysis.")
         emit("horizontal_analysis", "running", "Running horizontal analysis.")
         emit("horizontal_analysis", "completed", "Ran horizontal analysis.")
+        emit("cross_insights", "running", "Generating cross insights.")
+        emit("cross_insights", "completed", "Generated cross insights.")
         emit("synthesis_report_data", "running", "Synthesizing frontend-compatible report data.")
         emit("synthesis_report_data", "completed", "Synthesized frontend-compatible report data.")
         emit("quality_check", "running", "Checking report quality.")

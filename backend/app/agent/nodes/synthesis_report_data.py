@@ -6,6 +6,7 @@ from app.agent.llm.prompts import SYSTEM_PROMPT, build_narrative_report_prompt
 from app.agent.progress_reporter import ProgressReporter
 from app.agent.schemas.evidence import EvidenceCard, EvidenceGroup, KeyFinding, RiskNote
 from app.agent.schemas.report import FutureScenarios, NarrativeReportData, NarrativeSection, OverviewTabData, ReleaseUpdate, ReportData
+from app.agent.schemas.source import CandidateSource, SourceItem
 from app.agent.state import ReportAgentState
 
 
@@ -105,6 +106,32 @@ def _build_risk_notes(state: ReportAgentState, evidence_cards: list[EvidenceCard
 
 def _has_llm_fallback_warning(state: ReportAgentState) -> bool:
     return any("LLM analysis failed" in log.get("message", "") for log in state.get("run_log", []))
+
+
+def _source_confidence(source: CandidateSource) -> str:
+    if source.source_tier == "tier_1_primary":
+        return "high"
+    if source.source_tier == "unknown":
+        return "low"
+    return "medium"
+
+
+def _build_sources(candidate_sources: list[CandidateSource]) -> list[SourceItem]:
+    return [
+        SourceItem(
+            source_id=source.source_id,
+            title=source.title,
+            url=source.url,
+            source_domain=source.source_domain,
+            source_type=source.source_type,
+            source_tier=source.source_tier,
+            confidence=_source_confidence(source),
+            freshness=source.freshness,
+            was_scraped=source.was_scraped,
+            retrieved_at=source.retrieved_at,
+        )
+        for source in candidate_sources
+    ]
 
 
 def _build_narrative_report_fallback(
@@ -285,6 +312,11 @@ def synthesis_report_data(state: ReportAgentState) -> ReportAgentState:
         vertical=state["vertical"],
         horizontal=state["horizontal"],
         narrative_report=narrative_report,
+        cross_insights=state.get("cross_insights", []),
+        recommendations=state["horizontal"].recommendations,
+        evidence_cards=evidence_cards,
+        evidence_groups=state.get("evidence_groups") or overview.evidence_groups,
+        sources=_build_sources(state["candidate_sources"]),
         quality_warning=False,
         quality_issues=[],
         quality_score=90,

@@ -2,8 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.agent.schemas.evidence import EvidenceGroup, KeyFinding, RiskNote
-from app.agent.schemas.source import ConfidenceLevel
+from app.agent.schemas.evidence import EvidenceCard, EvidenceGroup, KeyFinding, RiskNote
+from app.agent.schemas.source import ConfidenceLevel, SourceItem
 
 
 class NarrativeSection(BaseModel):
@@ -29,6 +29,14 @@ class NarrativeReportData(BaseModel):
     intersection_insights: list[NarrativeSection] = Field(default_factory=list)
     future_scenarios: FutureScenarios
     source_notes: list[str] = Field(default_factory=list)
+
+
+class CrossInsight(BaseModel):
+    insight_id: str
+    title: str
+    content: str
+    supporting_evidence_ids: list[str] = Field(default_factory=list)
+
 
 SubjectType = Literal["product", "company", "concept", "person", "technology", "other"]
 UpdateType = Literal[
@@ -134,6 +142,11 @@ class ReportData(BaseModel):
     vertical: VerticalTabData
     horizontal: HorizontalTabData
     narrative_report: NarrativeReportData | None = None
+    cross_insights: list[CrossInsight] = Field(default_factory=list)
+    recommendations: list[Recommendation] = Field(default_factory=list)
+    evidence_cards: list[EvidenceCard] = Field(default_factory=list)
+    evidence_groups: list[EvidenceGroup] = Field(default_factory=list)
+    sources: list[SourceItem] = Field(default_factory=list)
     quality_warning: bool = False
     quality_issues: list[str] = Field(default_factory=list)
     quality_score: int = Field(ge=0, le=100)

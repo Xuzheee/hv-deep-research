@@ -22,8 +22,10 @@ NODE_REPORT_STATUS = {
     "evidence_filter": "filtering",
     "vertical_analysis": "analyzing_vertical",
     "horizontal_analysis": "analyzing_horizontal",
+    "cross_insights": "synthesizing",
     "synthesis_report_data": "synthesizing",
     "quality_check": "quality_checking",
+    "quality_remediation": "synthesizing",
     "persist_report_artifacts": "persisting",
 }
 

@@ -1,4 +1,5 @@
 from app.agent.nodes.collect_info import collect_info
+from app.agent.nodes.cross_insights import cross_insights
 from app.agent.nodes.evidence_filter import evidence_filter
 from app.agent.nodes.horizontal_analysis import horizontal_analysis
 from app.agent.nodes.initialize_report_run import initialize_report_run
@@ -10,6 +11,7 @@ from app.agent.nodes.vertical_analysis import vertical_analysis
 
 __all__ = [
     "collect_info",
+    "cross_insights",
     "evidence_filter",
     "horizontal_analysis",
     "initialize_report_run",

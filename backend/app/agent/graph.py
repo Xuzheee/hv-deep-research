@@ -4,6 +4,7 @@ from langgraph.graph import END, StateGraph
 
 from app.agent.nodes import (
     collect_info,
+    cross_insights,
     evidence_filter,
     horizontal_analysis,
     initialize_report_run,
@@ -22,8 +23,10 @@ NODE_SEQUENCE = [
     "evidence_filter",
     "vertical_analysis",
     "horizontal_analysis",
+    "cross_insights",
     "synthesis_report_data",
     "quality_check",
+    "quality_remediation",
     "persist_report_artifacts",
 ]
 
@@ -37,10 +40,24 @@ NODE_STATUS_MESSAGES = {
     "evidence_filter": "Filtering evidence.",
     "vertical_analysis": "Running vertical analysis.",
     "horizontal_analysis": "Running horizontal analysis.",
+    "cross_insights": "Generating cross insights.",
     "synthesis_report_data": "Synthesizing frontend-compatible report data.",
     "quality_check": "Checking report quality.",
+    "quality_remediation": "Preparing one quality remediation pass.",
     "persist_report_artifacts": "Saving report artifacts.",
 }
+
+def quality_remediation(state: ReportAgentState) -> ReportAgentState:
+    state["quality_remediation_attempted"] = True
+    state.setdefault("run_log", []).append(
+        {
+            "level": "warning",
+            "node": "quality_check",
+            "message": "Quality remediation triggered; rerunning synthesis once.",
+        }
+    )
+    return {**state, "progress_message": "Prepared one quality remediation pass."}
+
 
 NODE_FUNCTIONS: dict[str, NodeFunction] = {
     "initialize_report_run": initialize_report_run,
@@ -49,10 +66,19 @@ NODE_FUNCTIONS: dict[str, NodeFunction] = {
     "evidence_filter": evidence_filter,
     "vertical_analysis": vertical_analysis,
     "horizontal_analysis": horizontal_analysis,
+    "cross_insights": cross_insights,
     "synthesis_report_data": synthesis_report_data,
     "quality_check": quality_check,
+    "quality_remediation": quality_remediation,
     "persist_report_artifacts": persist_report_artifacts,
 }
+
+
+def _route_after_quality_check(state: ReportAgentState) -> str:
+    quality_result = state.get("quality_check")
+    if quality_result and quality_result.quality_warning and not state.get("quality_remediation_attempted", False):
+        return "quality_remediation"
+    return "persist_report_artifacts"
 
 
 def _observe_node(node_name: str, node: NodeFunction, on_node_event: NodeEventCallback | None) -> NodeFunction:
@@ -83,9 +109,18 @@ def build_report_graph(on_node_event: NodeEventCallback | None = None):
     graph.add_edge("collect_info", "evidence_filter")
     graph.add_edge("evidence_filter", "vertical_analysis")
     graph.add_edge("vertical_analysis", "horizontal_analysis")
-    graph.add_edge("horizontal_analysis", "synthesis_report_data")
+    graph.add_edge("horizontal_analysis", "cross_insights")
+    graph.add_edge("cross_insights", "synthesis_report_data")
     graph.add_edge("synthesis_report_data", "quality_check")
-    graph.add_edge("quality_check", "persist_report_artifacts")
+    graph.add_conditional_edges(
+        "quality_check",
+        _route_after_quality_check,
+        {
+            "quality_remediation": "quality_remediation",
+            "persist_report_artifacts": "persist_report_artifacts",
+        },
+    )
+    graph.add_edge("quality_remediation", "synthesis_report_data")
     graph.add_edge("persist_report_artifacts", END)
     return graph.compile()
 

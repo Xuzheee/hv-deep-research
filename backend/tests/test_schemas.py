@@ -1,7 +1,7 @@
 from pydantic import ValidationError
 
 from app.agent.schemas.evidence import EvidenceCard
-from app.agent.schemas.report import NarrativeReportData, ReportData
+from app.agent.schemas.report import CrossInsight, NarrativeReportData, ReportData
 
 
 def sample_report_data() -> dict:
@@ -130,6 +130,72 @@ def test_report_data_matches_frontend_shape() -> None:
     assert dumped["overview"]["key_findings"][0]["supporting_evidence_ids"] == ["ev_1"]
     assert dumped["horizontal"]["recommendations"][0]["priority"] == "medium"
     assert dumped["quality_score"] == 88
+
+
+def test_report_data_defaults_target_architecture_fields_for_legacy_payloads() -> None:
+    report = ReportData.model_validate(sample_report_data())
+
+    assert report.cross_insights == []
+    assert report.recommendations == []
+    assert report.evidence_cards == []
+    assert report.evidence_groups == []
+    assert report.sources == []
+
+
+
+def test_report_data_accepts_target_architecture_fields() -> None:
+    payload = sample_report_data()
+    payload["cross_insights"] = [
+        {
+            "insight_id": "cross_1",
+            "title": "Path shaped position",
+            "content": "The launch path shaped current competitive positioning.",
+            "supporting_evidence_ids": ["ev_1"],
+        }
+    ]
+    payload["recommendations"] = payload["horizontal"]["recommendations"]
+    payload["evidence_groups"] = payload["overview"]["evidence_groups"]
+    payload["evidence_cards"] = [
+        {
+            "evidence_id": "ev_1",
+            "claim": "GPT-4o launched as a multimodal assistant.",
+            "evidence": "GPT-4o launched with multimodal interaction.",
+            "source_title": "Launch",
+            "url": "https://example.com/launch",
+            "source_domain": "example.com",
+            "source_type": "official_blog",
+            "source_tier": "tier_1_primary",
+            "source_score": 5.0,
+            "dimension": "both",
+            "confidence": "high",
+            "relevance_score": 90,
+            "freshness": "current",
+            "retrieved_at": "2026-05-08T00:00:00+00:00",
+        }
+    ]
+    payload["sources"] = [
+        {
+            "source_id": "src_1",
+            "title": "Launch",
+            "url": "https://example.com/launch",
+            "source_domain": "example.com",
+            "source_type": "official_blog",
+            "source_tier": "tier_1_primary",
+            "confidence": "high",
+            "freshness": "current",
+            "was_scraped": True,
+            "retrieved_at": "2026-05-08T00:00:00+00:00",
+        }
+    ]
+
+    report = ReportData.model_validate(payload)
+
+    assert isinstance(report.cross_insights[0], CrossInsight)
+    assert report.recommendations[0].rec_id == "rec_1"
+    assert report.evidence_cards[0].evidence_id == "ev_1"
+    assert report.evidence_groups[0].group_id == "grp_1"
+    assert report.sources[0].source_id == "src_1"
+
 
 
 def test_report_data_accepts_narrative_report_for_web_output() -> None:

@@ -1,3 +1,4 @@
+import html
 import json
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,31 @@ class ReportFileStore:
         path = self.report_dir(report_id) / filename
         return json.loads(path.read_text(encoding="utf-8"))
 
+    def write_text(self, report_id: str, filename: str, content: str) -> str:
+        path = self.report_dir(report_id) / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return str(path)
+
+    def write_report_html(self, report_id: str, report_data: Any) -> str:
+        payload = self._jsonable(report_data)
+        title = html.escape(str(payload.get("title") or payload.get("report_id") or "HV Analysis Report"))
+        subject = html.escape(str(payload.get("subject") or ""))
+        overview = html.escape(str(payload.get("overview", {}).get("product_overview", "")))
+        content = (
+            "<!doctype html>"
+            "<html lang=\"zh-CN\">"
+            "<head><meta charset=\"utf-8\"><title>"
+            f"{title}"
+            "</title></head>"
+            "<body>"
+            f"<h1>{title}</h1>"
+            f"<p>{subject}</p>"
+            f"<section><h2>Overview</h2><p>{overview}</p></section>"
+            "</body></html>"
+        )
+        return self.write_text(report_id, "index.html", content)
+
     def write_report_artifacts(
         self,
         report_id: str,
@@ -41,6 +67,7 @@ class ReportFileStore:
             "raw_sources_path": self.write_json(report_id, "raw_sources.json", raw_sources),
             "run_log_path": self.write_json(report_id, "run_log.json", run_log),
             "quality_check_path": self.write_json(report_id, "quality_check.json", quality_check),
+            "html_path": self.write_report_html(report_id, report_data),
         }
 
     def _jsonable(self, data: Any) -> Any:

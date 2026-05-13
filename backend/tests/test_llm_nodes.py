@@ -2,10 +2,11 @@ import importlib
 
 from app.agent.llm import prompts as prompts_module
 from app.agent.nodes.evidence_filter import evidence_filter
+from app.agent.nodes.cross_insights import cross_insights
 from app.agent.nodes.horizontal_analysis import horizontal_analysis
 from app.agent.nodes.synthesis_report_data import synthesis_report_data
 from app.agent.nodes.vertical_analysis import vertical_analysis
-from app.agent.schemas.evidence import EvidenceCard
+from app.agent.schemas.evidence import EvidenceCard, EvidenceGroup
 from app.agent.schemas.report import (
     CapabilityBoundary,
     CompetitorMatrixItem,
@@ -27,6 +28,7 @@ from app.agent.state import ReportAgentState
 evidence_filter_module = importlib.import_module("app.agent.nodes.evidence_filter")
 vertical_analysis_module = importlib.import_module("app.agent.nodes.vertical_analysis")
 horizontal_analysis_module = importlib.import_module("app.agent.nodes.horizontal_analysis")
+cross_insights_module = importlib.import_module("app.agent.nodes.cross_insights")
 synthesis_report_data_module = importlib.import_module("app.agent.nodes.synthesis_report_data")
 
 
@@ -210,8 +212,92 @@ def test_evidence_filter_discards_noisy_llm_cards_and_uses_note_fallback(monkeyp
     result = evidence_filter(state)
 
     assert result["evidence_cards"][0].evidence_id == "ev_001"
-    assert result["evidence_cards"][0].claim == "GPT-4o has relevant evidence from example.com."
+    assert result["evidence_cards"][0].claim == "GPT-4o has source material from example.com."
     assert result["run_log"] == []
+
+
+
+def test_evidence_filter_fallback_cleans_noisy_markdown() -> None:
+    state = base_state()
+    state["collected_notes"][0].source_domain = "news.ycombinator.com"
+    state["collected_notes"][0].url = "https://news.ycombinator.com/item?id=123"
+    state["collected_notes"][0].raw_markdown_excerpt = (
+        "[Hacker News](https://news.ycombinator.com/news) | [new](https://news.ycombinator.com/newest) | "
+        "[past](https://news.ycombinator.com/front) | [comments](https://news.ycombinator.com/newcomments) | "
+        "[ask](https://news.ycombinator.com/ask) | [show](https://news.ycombinator.com/show) | "
+        "A developer discussion says Claude Code is powerful but long-running agent sessions can become costly. "
+        "Several commenters compare terminal workflows with IDE-based coding assistants."
+    )
+
+    result = evidence_filter(state)
+    quote = result["evidence_cards"][0].supporting_quote
+
+    assert len(quote) <= 600
+    assert "Hacker News" not in quote
+    assert "newcomments" not in quote
+    assert "login" not in quote
+    assert "long-running agent sessions" in quote
+
+
+
+def test_evidence_filter_fallback_uses_specific_claim() -> None:
+    result = evidence_filter(base_state())
+    claim = result["evidence_cards"][0].claim
+
+    assert "has relevant evidence from" not in claim
+    assert "GPT-4o" in claim
+    assert "example.com" in claim
+
+
+
+def test_evidence_filter_drops_noisy_notes_before_fallback() -> None:
+    state = base_state()
+    state["collected_notes"] = [
+        CollectedNote(
+            note_id="note_noise",
+            query="GPT-4o browser check",
+            tool_name="firecrawl_scrape",
+            title="Browser check",
+            url="https://noise.example.com/check",
+            source_domain="noise.example.com",
+            snippet="Checking your browser before accessing the site.",
+            raw_markdown_excerpt="Just a moment Checking your browser Cloudflare Ray ID abc123",
+            intended_dimension="both",
+            source_type_guess="web_source",
+            retrieved_at="2026-05-08T00:00:00Z",
+        ),
+        sample_note(),
+    ]
+
+    result = evidence_filter(state)
+
+    assert len(result["evidence_cards"]) == 1
+    assert result["evidence_cards"][0].url == "https://example.com/gpt-4o"
+
+
+
+def test_evidence_filter_dedupes_cards_by_url_and_quote() -> None:
+    state = base_state()
+    state["collected_notes"] = [sample_note(), sample_note().model_copy(update={"note_id": "note_002"})]
+
+    result = evidence_filter(state)
+
+    assert len(result["evidence_cards"]) == 1
+    assert result["evidence_cards"][0].evidence_id == "ev_001"
+
+
+
+def test_evidence_filter_writes_evidence_groups() -> None:
+    state = base_state()
+    state["collected_notes"] = [
+        sample_note().model_copy(update={"note_id": "note_vertical", "intended_dimension": "vertical", "url": "https://example.com/vertical"}),
+        sample_note().model_copy(update={"note_id": "note_horizontal", "intended_dimension": "horizontal", "url": "https://example.com/horizontal"}),
+    ]
+
+    result = evidence_filter(state)
+
+    assert {group.label for group in result["evidence_groups"]} == {"纵向证据", "横向证据"}
+    assert {evidence_id for group in result["evidence_groups"] for evidence_id in group.evidence_ids} == {"ev_001", "ev_002"}
 
 
 
@@ -294,7 +380,7 @@ def test_evidence_filter_skips_irrelevant_llm_notes_and_uses_fallback_if_empty(m
 
     result = evidence_filter(state)
 
-    assert result["evidence_cards"][0].claim == "GPT-4o has relevant evidence from example.com."
+    assert result["evidence_cards"][0].claim == "GPT-4o has source material from example.com."
 
 
 
@@ -309,7 +395,7 @@ def test_evidence_filter_falls_back_and_logs_warning_on_llm_error(monkeypatch) -
 
     result = evidence_filter(state)
 
-    assert result["evidence_cards"][0].claim == "GPT-4o has relevant evidence from example.com."
+    assert result["evidence_cards"][0].claim == "GPT-4o has source material from example.com."
     assert result["run_log"][0]["node"] == "evidence_filter"
     assert "ValueError" in result["run_log"][0]["message"]
 
@@ -478,6 +564,54 @@ def test_horizontal_analysis_falls_back_and_logs_warning_on_llm_error(monkeypatc
     assert "RuntimeError" in result["run_log"][0]["message"]
 
 
+def test_cross_insights_fallback_creates_evidence_backed_insight() -> None:
+    result = cross_insights(analyzed_state())
+
+    assert result["cross_insights"]
+    assert result["cross_insights"][0].insight_id == "cross_001"
+    assert result["cross_insights"][0].supporting_evidence_ids == ["ev_001"]
+
+
+def test_cross_insights_uses_llm_and_filters_unknown_evidence_ids(monkeypatch) -> None:
+    state = analyzed_state()
+    llm_insights = [
+        {
+            "insight_id": "cross_llm",
+            "title": "历史路径塑造竞争位置",
+            "content": "LLM 交叉洞察。",
+            "supporting_evidence_ids": ["missing_ev", "ev_001"],
+        }
+    ]
+
+    monkeypatch.setattr(cross_insights_module, "is_llm_configured", lambda: True)
+    monkeypatch.setattr(
+        cross_insights_module,
+        "complete_json",
+        lambda prompt, schema, system_prompt=None: schema(cross_insights=llm_insights),
+    )
+
+    result = cross_insights(state)
+
+    assert result["cross_insights"][0].title == "历史路径塑造竞争位置"
+    assert result["cross_insights"][0].supporting_evidence_ids == ["ev_001"]
+
+
+def test_cross_insights_falls_back_and_logs_warning_on_llm_error(monkeypatch) -> None:
+    state = analyzed_state()
+
+    def raise_llm_error(prompt, schema, system_prompt=None):
+        raise RuntimeError("network")
+
+    monkeypatch.setattr(cross_insights_module, "is_llm_configured", lambda: True)
+    monkeypatch.setattr(cross_insights_module, "complete_json", raise_llm_error)
+
+    result = cross_insights(state)
+
+    assert result["cross_insights"][0].insight_id == "cross_001"
+    assert result["run_log"][0]["node"] == "cross_insights"
+    assert "RuntimeError" in result["run_log"][0]["message"]
+
+
 def test_core_prompts_include_hv_research_rules() -> None:
     relevance_prompt = prompts_module.build_relevance_selection_prompt("GPT-4o", sample_note())
     vertical_prompt = prompts_module.build_vertical_analysis_prompt("GPT-4o", '[{"evidence_id":"ev_001"}]')
@@ -497,6 +631,18 @@ def test_core_prompts_include_hv_research_rules() -> None:
     assert "路径依赖" in vertical_prompt
     assert "先判断竞品场景" in horizontal_prompt
     assert "不要写成参数表" in horizontal_prompt
+
+
+
+def test_relevance_prompt_prioritizes_diverse_evidence_without_noise() -> None:
+    prompt = prompts_module.build_relevance_selection_prompt("GPT-4o", sample_note())
+
+    assert "优先保留能补充不同维度的信息" in prompt
+    assert "避免多条 selected_passages 重复支持同一个泛泛判断" in prompt
+    assert "可以保留用户反馈、社区讨论或 issue" in prompt
+    assert "不能把未经证实的个人观点当成事实" in prompt
+    assert "SEO 内容" in prompt
+    assert "空泛营销口号" in prompt
 
 
 
@@ -653,6 +799,12 @@ def test_synthesis_report_data_fallback_outputs_chinese_report_content(monkeypat
     assert report_data.overview.key_findings[0].title.startswith("关键发现")
     assert report_data.overview.evidence_groups[0].label == "综合证据"
     assert report_data.overview.evidence_groups[0].description.startswith("用于综合分析的证据")
+    assert report_data.recommendations == report_data.horizontal.recommendations
+    assert report_data.evidence_cards == state["evidence_cards"]
+    assert report_data.evidence_groups == report_data.overview.evidence_groups
+    assert report_data.sources[0].source_id == "src_001"
+    assert report_data.sources[0].url == "https://example.com/gpt-4o"
+    assert report_data.sources[0].was_scraped is False
     assert narrative is not None
     assert narrative.title == "GPT-4o 横纵深度研究报告"
     assert narrative.one_sentence_definition.startswith("GPT-4o 的商业证据显示")
@@ -663,6 +815,29 @@ def test_synthesis_report_data_fallback_outputs_chinese_report_content(monkeypat
     assert narrative.future_scenarios.most_dangerous.startswith("最危险情景：")
     assert narrative.future_scenarios.most_optimistic.startswith("最乐观情景：")
     assert narrative.source_notes[0].startswith("证据 ev_001：")
+
+
+def test_synthesis_report_data_prefers_state_evidence_groups_for_top_level_fields(monkeypatch) -> None:
+    state = analyzed_state()
+    state["evidence_groups"] = [
+        EvidenceGroup(
+            group_id="group_state",
+            label="State evidence group",
+            description="Evidence groups prepared by an upstream node.",
+            source_count=1,
+            evidence_count=1,
+            dominant_tier="tier_1_primary",
+            confidence="high",
+            evidence_ids=["ev_001"],
+        )
+    ]
+    monkeypatch.setattr(synthesis_report_data_module, "is_llm_configured", lambda: False, raising=False)
+
+    result = synthesis_report_data(state)
+
+    assert result["report_data"].overview.evidence_groups[0].label == "综合证据"
+    assert result["report_data"].evidence_groups[0].group_id == "group_state"
+
 
 
 def test_synthesis_report_data_logs_warning_when_llm_narrative_fails(monkeypatch) -> None:

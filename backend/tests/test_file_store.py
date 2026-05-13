@@ -16,7 +16,7 @@ def test_file_store_writes_expected_artifacts() -> None:
 
     paths = store.write_report_artifacts(
         "rpt_test",
-        report_data={"report_id": "rpt_test"},
+        report_data={"report_id": "rpt_test", "title": "GPT-4o 深度研究报告"},
         evidence_cards=[],
         raw_sources=[],
         run_log=[{"step": "test"}],
@@ -34,9 +34,12 @@ def test_file_store_writes_expected_artifacts() -> None:
         "raw_sources_path",
         "run_log_path",
         "quality_check_path",
+        "html_path",
     }
-    assert store.read_json("rpt_test", "report_data.json") == {"report_id": "rpt_test"}
+    assert store.read_json("rpt_test", "report_data.json") == {"report_id": "rpt_test", "title": "GPT-4o 深度研究报告"}
     assert store.read_json("rpt_test", "quality_check.json")["quality_score"] == 90
+    assert Path(paths["html_path"]).name == "index.html"
+    assert "GPT-4o 深度研究报告" in Path(paths["html_path"]).read_text(encoding="utf-8")
     shutil.rmtree(temp_dir)
 
 
