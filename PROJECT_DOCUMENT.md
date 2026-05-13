@@ -20,6 +20,64 @@
 4. 工程实现细节：API、数据库、Pydantic Schema、任务进度、失败重试、JSON repair、source ranker、evidence extraction。
 5. MVP 开发范围与后续演进计划。
 
+### 0.1 当前实现进度（2026-05-13）
+
+当前代码已从最初 MVP 升级到“可运行的横纵分析 Agent 架构”阶段。后端主干已实现并通过测试：
+
+```text
+initialize_report_run
+  ↓
+research_planner
+  ↓
+collect_info
+  ↓
+evidence_filter
+  ↓
+vertical_analysis
+  ↓
+horizontal_analysis
+  ↓
+cross_insights
+  ↓
+synthesis_report_data
+  ↓
+quality_check
+  ↓
+quality_remediation（仅当 quality_warning 且尚未补救时运行一次）
+  ↓
+synthesis_report_data（补救后重跑一次结构化合成）
+  ↓
+persist_report_artifacts
+```
+
+已实现能力：
+
+| 模块 | 当前状态 |
+|---|---|
+| 前端 | Vite + React 单页 Dashboard，可创建报告、轮询状态、展示历史和三 Tab 报告 |
+| 后端 API | FastAPI 已提供创建报告、列表、详情、状态查询接口 |
+| 存储 | SQLite 保存报告元数据和运行事件，本地文件保存 JSON/HTML artifacts |
+| Agent Graph | LangGraph 线性主流程已包含 `cross_insights` 和一次性 `quality_remediation` |
+| Research Planner | 支持确定性中英混合计划；配置 LLM 后可生成 `ResearchPlan`，弱输出回退到确定性计划 |
+| Collection | 单一 `collect_info` 节点按 `planned_queries` 做纵向、横向、补充维度收集，保留 URL 去重、域名抓取上限、工具调用上限和超时继续 |
+| Evidence Filter | 已有规则预过滤、EvidenceCard 提取/回退、URL+claim 去重和 evidence_groups 生成 |
+| Analysis | 已有纵向分析、横向分析、横纵交叉洞察和结构化报告合成 |
+| Quality | 已有质量评分、warning、结构化 issue、JSON repair 和一次有限补救 |
+| Artifacts | 每次报告保存 `report_data.json`、`evidence_cards.json`、`raw_sources.json`、`run_log.json`、`quality_check.json`、`index.html` |
+
+尚未实现或仍是后续增强：
+
+| 目标能力 | 当前差距 |
+|---|---|
+| `vertical_collect` / `horizontal_collect` / `supplementary_collect` 并行节点 | 当前仍是单一 `collect_info` 节点，只是内部按维度组织 query |
+| `vertical_analysis` / `horizontal_analysis` 并行执行 | 当前图中二者仍按顺序执行 |
+| 完整 ReAct 自主循环 | 当前 collection 以维度化固定计划为主，尚未实现完整工具调用推理循环 |
+| SSE 实时事件流 | 当前前端主要通过状态轮询获取进度 |
+| rerun / delete API | 当前主流程以创建、列表、详情、状态为主 |
+| 多用户、权限、云部署、PDF 导出 | 暂不属于当前 MVP 实现范围 |
+
+当前验证基线：后端测试 `89 passed, 2 skipped`；真实 API smoke 已验证报告可完成并产出 `cross_insights` 和 artifacts；前端本地页面可启动并显示完成报告。
+
 ---
 
 ## 1. 项目概述
@@ -309,9 +367,9 @@ quality_check
 persist_report_artifacts
 ```
 
-### 5.2 MVP 简化流程
+### 5.2 当前实际流程
 
-MVP 阶段可以把三个 collect 节点合并为一个 `collect_info`：
+当前实现仍把三个 collect 节点合并为一个 `collect_info`，但 `research_planner` 会生成带 `intended_dimension` 的 `planned_queries`，`collect_info` 会按纵向、横向、补充维度收集材料。当前图是线性主流程，`vertical_analysis` 和 `horizontal_analysis` 尚未并行。
 
 ```text
 initialize_report_run
@@ -322,18 +380,22 @@ collect_info
   ↓
 evidence_filter
   ↓
-vertical_analysis + horizontal_analysis
+vertical_analysis
+  ↓
+horizontal_analysis
   ↓
 cross_insights
   ↓
 synthesis_report_data
   ↓
 quality_check
-  ↓
-persist_report_artifacts
+  ├─ 无需补救 → persist_report_artifacts
+  └─ 需要补救且尚未补救 → quality_remediation → synthesis_report_data → quality_check → persist_report_artifacts
 ```
 
-### 5.3 ReAct 与并行节点定义
+`quality_remediation` 是真实 LangGraph 节点，而不是条件路由里的副作用；它只设置一次补救标记并重跑结构化合成，避免无限补救循环。
+
+### 5.3 目标 ReAct 与并行节点定义
 
 | 节点 | 是否 ReAct | 是否并行 | 说明 |
 |---|---:|---:|---|
@@ -804,6 +866,10 @@ class HVResearchState(BaseModel):
 ### 14.1 ResearchPlan
 
 ```python
+class PlannedQuery(BaseModel):
+    query: str
+    intended_dimension: Literal["vertical", "horizontal", "both", "supplementary"]
+
 class ResearchPlan(BaseModel):
     subject: str
     subject_type: str
@@ -812,6 +878,7 @@ class ResearchPlan(BaseModel):
     horizontal_questions: list[str]
     supplementary_questions: list[str] = []
     initial_queries: list[str]
+    planned_queries: list[PlannedQuery] = []
     expected_competitors: list[str] = []
     source_preferences: list[str] = []
 ```
@@ -1215,20 +1282,22 @@ class ProgressReporter:
             db_repo.update_report_status(db, self.report_id, step_to_status(step), message)
 ```
 
-### 18.4 step → status 映射
+### 18.4 node → status 映射
+
+当前 API 后台任务通过 graph observation callback 记录每个节点的 `running` / `completed` / `failed` 事件，并把节点名映射为前端可展示的报告状态。
 
 ```python
-STEP_TO_STATUS = {
-    "initialize_report_run": "pending",
+NODE_REPORT_STATUS = {
+    "initialize_report_run": "planning",
     "research_planner": "planning",
     "collect_info": "searching",
-    "collect_info.scraping": "scraping",
     "evidence_filter": "filtering",
     "vertical_analysis": "analyzing_vertical",
     "horizontal_analysis": "analyzing_horizontal",
-    "cross_insights": "analyzing_cross",
+    "cross_insights": "synthesizing",
     "synthesis_report_data": "synthesizing",
     "quality_check": "quality_checking",
+    "quality_remediation": "synthesizing",
     "persist_report_artifacts": "persisting",
 }
 ```
@@ -1811,12 +1880,30 @@ blocked_patterns:
 ### Phase 5：增强功能
 
 ```text
-1. vertical_collect / horizontal_collect 并行化
-2. SSE 实时事件流
-3. PDF 导出
-4. 人工审核 evidence cards
-5. 多主题报告模板
-6. Next.js 部署与 FastAPI 部署
+1. vertical_collect / horizontal_collect / supplementary_collect 拆分与并行化
+2. vertical_analysis / horizontal_analysis 并行化
+3. collect_info 升级为完整 ReAct 自主工具循环
+4. SSE 实时事件流
+5. rerun / delete API
+6. PDF 导出
+7. 人工审核 evidence cards
+8. 多主题报告模板
+9. Next.js 部署与 FastAPI 部署
+```
+
+### 29.6 当前已完成里程碑
+
+```text
+1. 后端核心 Schema、State、Repository、FileStore 已落地。
+2. FastAPI 创建报告、列表、详情、状态查询已可用。
+3. LangGraph 主流程已包含 cross_insights 和一次性 quality_remediation。
+4. research_planner 已支持确定性中英混合计划和可选 LLM 计划。
+5. collect_info 已按 planned_queries 的 intended_dimension 做维度化收集。
+6. evidence_filter 已包含规则预过滤、去重和 evidence_groups。
+7. synthesis_report_data 已同时保留旧三 Tab 字段和目标顶层字段。
+8. persist_report_artifacts 已保存 JSON artifacts 和静态 index.html。
+9. JSON repair 已支持 Markdown 包裹和前后缀文本中的 JSON 对象提取。
+10. 后端测试基线：89 passed, 2 skipped。
 ```
 
 ---
