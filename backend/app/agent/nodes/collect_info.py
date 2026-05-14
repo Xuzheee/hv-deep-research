@@ -65,6 +65,7 @@ def collect_info(state: ReportAgentState) -> ReportAgentState:
                 continue
             try:
                 notes.append(scrape_firecrawl(source.url, query, source.intended_dimension))
+                source.was_scraped = True
                 scrape_counts_by_domain[source.source_domain] = scrape_counts_by_domain.get(source.source_domain, 0) + 1
             except Exception as exc:
                 source.scrape_failed = True

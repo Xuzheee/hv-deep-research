@@ -15,6 +15,25 @@ def _append_planner_warning(state: ReportAgentState, message: str) -> None:
     )
 
 
+REQUIRED_SOURCE_SLOTS = [
+    ("official", "docs"),
+    ("official", "blog"),
+    ("changelog", "release notes"),
+    ("pricing",),
+    ("api", "capability"),
+    ("launch", "coverage"),
+    ("competitors", "alternatives"),
+    ("customer", "case"),
+    ("developer", "github"),
+    ("limitations", "risks"),
+]
+
+
+def _has_required_source_slots(plan: ResearchPlan) -> bool:
+    query_text = " ".join(query.query for query in plan.planned_queries).lower()
+    return all(any(term in query_text for term in slot) for slot in REQUIRED_SOURCE_SLOTS)
+
+
 def _is_usable_plan(plan: ResearchPlan) -> bool:
     planned_dimensions = {query.intended_dimension for query in plan.planned_queries}
     return (
@@ -23,21 +42,23 @@ def _is_usable_plan(plan: ResearchPlan) -> bool:
         and bool(plan.vertical_questions)
         and bool(plan.horizontal_questions)
         and {"vertical", "horizontal"}.issubset(planned_dimensions)
+        and _has_required_source_slots(plan)
     )
 
 
 def _deterministic_research_plan(state: ReportAgentState) -> ResearchPlan:
     subject = state["subject"]
     planned_queries = [
-        PlannedQuery(query=f"{subject} official product features pricing enterprise", intended_dimension="both"),
-        PlannedQuery(query=f"{subject} official blog changelog launch updates", intended_dimension="vertical"),
+        PlannedQuery(query=f"{subject} official docs API capability", intended_dimension="both"),
+        PlannedQuery(query=f"{subject} official blog launch coverage", intended_dimension="vertical"),
+        PlannedQuery(query=f"{subject} official changelog release notes roadmap", intended_dimension="vertical"),
+        PlannedQuery(query=f"{subject} pricing plans enterprise", intended_dimension="horizontal"),
         PlannedQuery(query=f"{subject} funding revenue valuation customers adoption", intended_dimension="both"),
         PlannedQuery(query=f"{subject} competitors alternatives comparison", intended_dimension="horizontal"),
         PlannedQuery(query=f"{subject} limitations risks weaknesses developer feedback", intended_dimension="horizontal"),
         PlannedQuery(query=f"{subject} market analysis positioning moat", intended_dimension="horizontal"),
         PlannedQuery(query=f"{subject} customer case studies enterprise use cases", intended_dimension="supplementary"),
-        PlannedQuery(query=f"{subject} docs github community developer experience", intended_dimension="supplementary"),
-        PlannedQuery(query=f"{subject} official changelog release notes roadmap", intended_dimension="vertical"),
+        PlannedQuery(query=f"{subject} developer github community experience", intended_dimension="supplementary"),
         PlannedQuery(query=f"{subject} founder interview origin history", intended_dimension="vertical"),
         PlannedQuery(query=f"{subject} reviews reddit hacker news github issues", intended_dimension="supplementary"),
         PlannedQuery(query=f"{subject} enterprise security compliance", intended_dimension="supplementary"),

@@ -7,6 +7,7 @@ from app.agent.schemas.source import CandidateSource, Freshness, SourceTier
 TIER_DOMAIN_MAP: dict[SourceTier, set[str]] = {
     "tier_1_primary": {
         "openai.com",
+        "cursor.com",
         "api-docs.deepseek.com",
         "docs.tavily.com",
         "docs.firecrawl.dev",

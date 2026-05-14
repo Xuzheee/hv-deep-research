@@ -2,8 +2,8 @@ import json
 
 from app.agent.schemas.evidence import EvidenceCard
 from app.agent.schemas.research_plan import ResearchPlan
-from app.agent.schemas.report import HorizontalTabData, NarrativeReportData, VerticalTabData
-from app.agent.schemas.source import CollectedNote
+from app.agent.schemas.report import CrossInsight, HorizontalTabData, NarrativeReportData, VerticalTabData
+from app.agent.schemas.source import CollectedNote, RelevanceSelectionResult
 
 HV_RESEARCH_RULES = (
     "你正在执行一次横纵分析法深度研究。"
@@ -32,9 +32,9 @@ def build_research_planner_prompt(subject: str, subject_type: str) -> str:
         "vertical_questions 聚焦 origin story、launch、milestones、turning points、product evolution、path dependencies。"
         "horizontal_questions 聚焦 direct competitors、alternatives、pricing、capability boundaries、market positioning、risks。"
         "supplementary_questions 聚焦 customer signals、community/developer signals、security、compliance、controversy。"
-        "initial_queries 必须是可直接搜索的中英混合 query，至少 6 条，并覆盖 official、changelog/release notes、founder/origin/history、competitors/alternatives、limitations/risks、community/customer signals。"
+        "initial_queries 必须是可直接搜索的中英混合 query，至少 10 条，并覆盖 official docs、official blog、changelog/release notes、pricing、API capability、launch coverage、founder/origin/history、competitors/alternatives、customer case studies、developer/GitHub signals、limitations/risks、community/customer signals。"
         "planned_queries 必须和 initial_queries 对齐，每条包含 query 和 intended_dimension；intended_dimension 只能是 vertical、horizontal、supplementary 或 both。"
-        "planned_queries 至少包含一条 vertical 和一条 horizontal。source_preferences 要偏向 official_site、official_docs、official_blog、official_changelog、credible_media、market_analysis、customer_case_studies、community_developer_signals。"
+        "planned_queries 至少包含一条 vertical、一条 horizontal 和一条 supplementary，并且必须覆盖 official docs、official blog、changelog/release notes、pricing、API capability、launch coverage、competitors/alternatives、customer case studies、developer/GitHub、limitations/risks 这些来源槽位。source_preferences 要偏向 official_site、official_docs、official_blog、official_changelog、credible_media、market_analysis、customer_case_studies、community_developer_signals。"
         "只返回 JSON。"
         f"返回对象必须匹配这个 schema: {ResearchPlan.model_json_schema()}."
     )
@@ -64,6 +64,7 @@ def build_relevance_selection_prompt(subject: str, note: CollectedNote, max_pass
         "7. 忽略噪音：导航栏、页脚、cookie 弹窗、订阅提示、登录提示、分享按钮、Cloudflare、人机验证、浏览器检查、无关推荐、广告、空泛营销口号。"
         "分类规则：vertical：用于起源、时间线、演进、关键节点、融资、客户、战略变化、路径依赖；horizontal：用于竞品、替代方案、定位、定价、能力边界、风险、用户口碑、市场格局；both 同时能支撑纵向和横向判断。"
         "输出要求：如果材料没有实质信息，返回 is_relevant=false，并且 selected_passages 为空。quote 必须是来源文本中的原文片段，不要改写。why_it_matters 用中文说明这条证据为什么重要。relevance_score 需要体现证据质量和相关性，不要所有都给高分。只返回 JSON。"
+        f"返回对象必须匹配 RelevanceSelectionResult schema: {RelevanceSelectionResult.model_json_schema()}. "
         f"Source: {json.dumps(source_payload, ensure_ascii=False)}"
     )
 
@@ -102,7 +103,7 @@ def build_vertical_analysis_prompt(subject: str, evidence_cards_json: str) -> st
         "4. 关键转折：哪些事件改变了产品方向、市场位置、用户结构或商业路径？为什么这些事件重要？"
         "5. 决策逻辑与路径依赖：哪些早期选择塑造了今天的位置？哪些当时合理的选择后来可能变成限制？哪些机制让它越走越深？"
         "证据要求：每个核心判断都必须绑定 supporting_evidence_ids；不要使用不存在的 evidence_id；如果某个关键节点证据不足，明确写现有证据不足以确认，不要硬编。"
-        "写作要求：输出中文；纵向部分要有叙事感和因果链；避免流水账；避免咨询腔、AI 腔和空泛判断；只返回 JSON。"
+        "写作要求：输出中文；纵向部分要有叙事感和因果链；先给判断，再展开理由和证据；每个阶段先下结论，再解释原因、变化和后果；不要逐条复述 evidence cards；避免流水账；避免咨询腔、AI 腔和空泛判断；只返回 JSON。"
         f"返回对象必须匹配这个 schema: {VerticalTabData.model_json_schema()}. "
         f"Evidence cards: {evidence_cards_json}"
     )
@@ -119,7 +120,7 @@ def build_horizontal_analysis_prompt(subject: str, evidence_cards_json: str) -> 
         "能力边界：说明当前能力边界、产品阶段短板、结构性短板，以及来自竞争、技术、商业模式、用户迁移或生态依赖的风险。"
         "生态位和趋势：说明研究对象在赛道中占据什么位置，填补了什么空白，还是在正面竞争；判断当前格局和未来最可能的竞争走向。"
         "证据要求：每个核心判断都必须绑定 supporting_evidence_ids；不要使用不存在的 evidence_id；如果证据无法确认竞品或用户反馈，明确说明现有证据不足以确认；不要编造竞品、价格、用户评价或市场份额。"
-        "写作要求：输出中文；分析要像研究判断，不像功能清单；避免咨询腔、AI 腔和空泛判断；只返回 JSON。"
+        "写作要求：输出中文；先判断竞争位置，再展开理由和证据；分析要像研究判断，不像功能清单；不要把竞品写成 evidence cards 摘要；解释用户为什么选择或拒绝；避免咨询腔、AI 腔和空泛判断；只返回 JSON。"
         f"返回对象必须匹配这个 schema: {HorizontalTabData.model_json_schema()}. "
         f"Evidence cards: {evidence_cards_json}"
     )
@@ -140,7 +141,7 @@ def build_cross_insights_prompt(
         "每条 insight 必须包含 insight_id、title、content、supporting_evidence_ids。"
         "supporting_evidence_ids 只能使用提供的 evidence_id；如果证据不足，content 中要明确说明边界，不要编造事实。"
         "只返回 JSON，对象字段为 cross_insights。"
-        "返回对象中的 cross_insights 必须匹配 CrossInsight 数组 schema。"
+        f"返回对象中的 cross_insights 必须匹配 CrossInsight 数组 schema: {CrossInsight.model_json_schema()}. "
         f"Vertical analysis: {vertical_json} "
         f"Horizontal analysis: {horizontal_json} "
         f"Evidence cards: {evidence_cards_json}"
@@ -160,8 +161,9 @@ def build_narrative_report_prompt(
         f"请为「{subject}」生成一份适合网页展示、后续也可转成 PDF 的中文横纵分析深度研究报告。"
         "你将收到 overview、vertical analysis、horizontal analysis 和 evidence cards。"
         "报告内容必须使用中文；英文产品名、公司名、URL、evidence_id 保持原样。"
-        "这不是咨询公司摘要，也不是信息堆砌，而是一份有证据、有判断、有叙事节奏的深度研究报告。不要写咨询式摘要。先给判断，再展开理由。"
-        "每个 section 都要有观点句。标题要像章节标题。"
+        "这不是咨询公司摘要，也不是信息堆砌，而是一份有证据、有判断、有叙事节奏的完整研究文章。不要写咨询式摘要。先给判断，再展开理由。"
+        "整体报告要有开头、主体和收束判断；段落之间要有承接，像一篇连续长文，而不是结构化字段的机械拼接。"
+        "每个 section 都要有观点句。标题要像章节标题。不要按字段拼贴，不要写成卡片集合。"
         "title 要具体，体现研究对象和研究角度。"
         "one_sentence_definition 要用一句话讲清楚它是什么，不要写成百科定义。"
         "opening_judgment 要给出明确判断，判断要基于纵向路径和横向位置，不要写随着技术发展这类套话。"

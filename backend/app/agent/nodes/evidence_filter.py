@@ -33,9 +33,19 @@ def _source_score_for_note(state: ReportAgentState, note: CollectedNote) -> floa
     return 1.0
 
 
+def _source_type_for_note(state: ReportAgentState, note: CollectedNote) -> str:
+    if note.source_type_guess:
+        return note.source_type_guess
+    for source in state.get("candidate_sources", []):
+        if source.url == note.url:
+            return source.source_type
+    return "web_source"
+
+
 MIN_CARD_RELEVANCE_SCORE = 40
 MIN_PASSAGE_RELEVANCE_SCORE = 50
 MAX_FALLBACK_QUOTE_CHARS = 600
+MARKDOWN_IMAGE_PATTERN = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\([^)]*\)")
 
 NOISE_PHRASES = (
@@ -46,6 +56,11 @@ NOISE_PHRASES = (
     "share this",
     "cookie",
     "subscribe",
+    "table of contents",
+    "playpause",
+    "enter fullscreen",
+    "privacy policy",
+    "terms",
 )
 
 FALLBACK_NAVIGATION_PREFIXES = (
@@ -65,17 +80,33 @@ def _has_enough_text(text: str | None, min_length: int = 20) -> bool:
 
 
 def _is_usable_note(note: CollectedNote) -> bool:
-    content = " ".join(part for part in [note.title, note.snippet, note.raw_markdown_excerpt] if part)
-    return _has_enough_text(content) and not _has_noise(content)
+    candidates = [_normalize_quote_text(note.snippet), _normalize_quote_text(note.raw_markdown_excerpt)]
+    return any(_has_enough_text(candidate) and not _has_noise(candidate) for candidate in candidates)
 
 
-def _clean_fallback_quote(text: str | None) -> str:
-    cleaned = MARKDOWN_LINK_PATTERN.sub(r"\1", text or "")
-    cleaned = cleaned.replace("|", " ")
+def _normalize_quote_text(text: str | None) -> str:
+    cleaned = MARKDOWN_IMAGE_PATTERN.sub(" ", text or "")
+    cleaned = MARKDOWN_LINK_PATTERN.sub(r"\1", cleaned)
+    cleaned = cleaned.replace("|", " ").replace("\\", " ")
     cleaned = " ".join(cleaned.split())
     for prefix in FALLBACK_NAVIGATION_PREFIXES:
         cleaned = cleaned.removeprefix(prefix).strip()
-    return cleaned[-MAX_FALLBACK_QUOTE_CHARS:]
+    return cleaned
+
+
+def _clean_fallback_quote(text: str | None) -> str:
+    cleaned = _normalize_quote_text(text)
+    return cleaned[:MAX_FALLBACK_QUOTE_CHARS]
+
+
+def _fallback_quote_for_note(note: CollectedNote) -> str:
+    excerpt = _normalize_quote_text(note.raw_markdown_excerpt)
+    if _has_enough_text(excerpt) and not _has_noise(excerpt):
+        return excerpt[:MAX_FALLBACK_QUOTE_CHARS]
+    snippet = _normalize_quote_text(note.snippet)
+    if _has_enough_text(snippet) and not _has_noise(snippet):
+        return snippet[:MAX_FALLBACK_QUOTE_CHARS]
+    return _clean_fallback_quote(f"Evidence collected from {note.url}.")
 
 
 def _fallback_claim_for_note(state: ReportAgentState, note: CollectedNote) -> str:
@@ -100,7 +131,7 @@ def _is_usable_evidence_card(card: EvidenceCard, note: CollectedNote) -> bool:
 
 
 def _deterministic_evidence_card(state: ReportAgentState, note: CollectedNote, index: int) -> EvidenceCard:
-    fallback_quote = _clean_fallback_quote(note.raw_markdown_excerpt or note.snippet or f"Evidence collected from {note.url}.")
+    fallback_quote = _fallback_quote_for_note(note)
     return EvidenceCard(
         evidence_id=f"ev_{index:03d}",
         claim=_fallback_claim_for_note(state, note),
@@ -108,7 +139,7 @@ def _deterministic_evidence_card(state: ReportAgentState, note: CollectedNote, i
         source_title=note.title,
         url=note.url,
         source_domain=note.source_domain,
-        source_type=note.source_type_guess or "mock_scrape",
+        source_type=_source_type_for_note(state, note),
         source_tier=_source_tier_for_note(state, note),
         source_score=_source_score_for_note(state, note),
         dimension=note.intended_dimension,
@@ -134,7 +165,7 @@ def _evidence_card_from_selected_passage(
         source_title=note.title,
         url=note.url,
         source_domain=note.source_domain,
-        source_type=note.source_type_guess or "web_source",
+        source_type=_source_type_for_note(state, note),
         source_tier=_source_tier_for_note(state, note),
         source_score=_source_score_for_note(state, note),
         dimension=passage.dimension,
@@ -171,7 +202,11 @@ def _llm_evidence_cards(state: ReportAgentState) -> list[EvidenceCard]:
     cards = []
     for note in state["collected_notes"]:
         selection_prompt = build_relevance_selection_prompt(state["subject"], note)
-        selection = complete_json(selection_prompt, RelevanceSelectionResult, system_prompt=SYSTEM_PROMPT)
+        try:
+            selection = complete_json(selection_prompt, RelevanceSelectionResult, system_prompt=SYSTEM_PROMPT)
+        except ValueError as exc:
+            _append_llm_warning(state, "evidence_filter", exc)
+            continue
         if not selection.is_relevant or not selection.selected_passages:
             continue
 
@@ -185,7 +220,10 @@ def _llm_evidence_cards(state: ReportAgentState) -> list[EvidenceCard]:
 
     if not cards:
         return _deterministic_evidence_cards(state)
-    return _dedupe_evidence_cards(cards)
+
+    covered_urls = {card.url for card in cards}
+    supplemental_cards = [card for card in _deterministic_evidence_cards(state) if card.url not in covered_urls]
+    return _dedupe_evidence_cards(cards + supplemental_cards)
 
 
 def _evidence_dimension_label(dimension: str) -> str:
@@ -225,11 +263,13 @@ def _build_evidence_groups(cards: list[EvidenceCard]) -> list[EvidenceGroup]:
 
 
 def _append_llm_warning(state: ReportAgentState, node: str, exc: Exception) -> None:
+    detail = str(exc)[:200]
+    suffix = f": {detail}" if detail else ""
     state.setdefault("run_log", []).append(
         {
             "level": "warning",
             "node": node,
-            "message": f"LLM analysis failed; used deterministic fallback: {exc.__class__.__name__}",
+            "message": f"LLM analysis failed; used deterministic fallback: {exc.__class__.__name__}{suffix}",
         }
     )
 

@@ -95,6 +95,35 @@ def test_research_planner_adds_queries_for_source_diversity() -> None:
 
 
 
+def test_research_planner_covers_required_source_slots() -> None:
+    state = research_planner(
+        {
+            "report_id": "rpt_plan_slots_test",
+            "topic": "Cursor AI",
+            "subject": "Cursor AI",
+            "subject_type": "product",
+            "run_log": [],
+        }
+    )
+
+    query_text = " ".join(query.query for query in state["research_plan"].planned_queries).lower()
+
+    required_slots = [
+        ["official", "docs"],
+        ["official", "blog"],
+        ["changelog", "release notes"],
+        ["pricing"],
+        ["api", "capability"],
+        ["launch", "coverage"],
+        ["competitors", "alternatives"],
+        ["customer", "case"],
+        ["developer", "github"],
+        ["limitations", "risks"],
+    ]
+    assert all(any(term in query_text for term in slot) for slot in required_slots)
+
+
+
 def test_research_planner_uses_llm_plan_when_configured(monkeypatch) -> None:
     llm_plan = ResearchPlan(
         subject="Cursor AI",
@@ -104,20 +133,28 @@ def test_research_planner_uses_llm_plan_when_configured(monkeypatch) -> None:
         horizontal_questions=["Cursor AI direct competitors and pricing"],
         supplementary_questions=["Cursor AI customer signals"],
         initial_queries=[
-            "Cursor AI official product features",
-            "Cursor AI launch history",
-            "Cursor AI founder interview",
-            "Cursor AI competitors",
+            "Cursor AI official docs API capability",
+            "Cursor AI official blog launch coverage",
+            "Cursor AI changelog release notes",
+            "Cursor AI pricing plans enterprise",
+            "Cursor AI founder interview origin history",
+            "Cursor AI competitors alternatives",
             "Cursor AI limitations risks",
-            "Cursor AI customer signals",
+            "Cursor AI customer case studies",
+            "Cursor AI developer GitHub signals",
+            "Cursor AI community customer signals",
         ],
         planned_queries=[
-            PlannedQuery(query="Cursor AI official product features", intended_dimension="both"),
-            PlannedQuery(query="Cursor AI launch history", intended_dimension="vertical"),
-            PlannedQuery(query="Cursor AI founder interview", intended_dimension="vertical"),
-            PlannedQuery(query="Cursor AI competitors", intended_dimension="horizontal"),
+            PlannedQuery(query="Cursor AI official docs API capability", intended_dimension="both"),
+            PlannedQuery(query="Cursor AI official blog launch coverage", intended_dimension="vertical"),
+            PlannedQuery(query="Cursor AI changelog release notes", intended_dimension="vertical"),
+            PlannedQuery(query="Cursor AI pricing plans enterprise", intended_dimension="horizontal"),
+            PlannedQuery(query="Cursor AI founder interview origin history", intended_dimension="vertical"),
+            PlannedQuery(query="Cursor AI competitors alternatives", intended_dimension="horizontal"),
             PlannedQuery(query="Cursor AI limitations risks", intended_dimension="horizontal"),
-            PlannedQuery(query="Cursor AI customer signals", intended_dimension="supplementary"),
+            PlannedQuery(query="Cursor AI customer case studies", intended_dimension="supplementary"),
+            PlannedQuery(query="Cursor AI developer GitHub signals", intended_dimension="supplementary"),
+            PlannedQuery(query="Cursor AI community customer signals", intended_dimension="supplementary"),
         ],
         expected_competitors=["GitHub Copilot"],
         source_preferences=["official_blog", "credible_media"],
@@ -174,6 +211,54 @@ def test_research_planner_falls_back_when_llm_plan_is_weak(monkeypatch) -> None:
     assert {query.intended_dimension for query in plan.planned_queries} >= {"vertical", "horizontal"}
     assert state["run_log"][0]["node"] == "research_planner"
     assert "weak" in state["run_log"][0]["message"].lower()
+
+
+
+def test_research_planner_rejects_llm_plan_missing_source_slots(monkeypatch) -> None:
+    narrow_plan = ResearchPlan(
+        subject="Cursor AI",
+        subject_type="product",
+        research_motivation="Looks broad but misses key source slots.",
+        vertical_questions=["Cursor AI origin and launch"],
+        horizontal_questions=["Cursor AI competitors and alternatives"],
+        initial_queries=[
+            "Cursor AI overview",
+            "Cursor AI launch",
+            "Cursor AI history",
+            "Cursor AI competitors",
+            "Cursor AI alternatives",
+            "Cursor AI reviews",
+        ],
+        planned_queries=[
+            PlannedQuery(query="Cursor AI overview", intended_dimension="both"),
+            PlannedQuery(query="Cursor AI launch", intended_dimension="vertical"),
+            PlannedQuery(query="Cursor AI history", intended_dimension="vertical"),
+            PlannedQuery(query="Cursor AI competitors", intended_dimension="horizontal"),
+            PlannedQuery(query="Cursor AI alternatives", intended_dimension="horizontal"),
+            PlannedQuery(query="Cursor AI reviews", intended_dimension="supplementary"),
+        ],
+    )
+
+    monkeypatch.setattr(research_planner_module, "is_llm_configured", lambda: True)
+    monkeypatch.setattr(research_planner_module, "complete_json", lambda prompt, schema, system_prompt=None: narrow_plan)
+
+    state = research_planner(
+        {
+            "report_id": "rpt_plan_missing_slots_test",
+            "topic": "Cursor AI",
+            "subject": "Cursor AI",
+            "subject_type": "product",
+            "run_log": [],
+        }
+    )
+
+    query_text = " ".join(query.query for query in state["research_plan"].planned_queries).lower()
+
+    assert "official docs" in query_text
+    assert "pricing" in query_text
+    assert "api capability" in query_text
+    assert "customer case" in query_text
+    assert any(log["node"] == "research_planner" and "weak" in log["message"].lower() for log in state["run_log"])
 
 
 
@@ -258,6 +343,58 @@ def test_collect_info_collects_vertical_and_horizontal_dimensions(monkeypatch) -
     assert "vertical" in scraped_dimensions
     assert "horizontal" in scraped_dimensions
     assert {note.intended_dimension for note in result["collected_notes"]} >= {"vertical", "horizontal"}
+
+
+
+def test_collect_info_marks_successfully_scraped_sources(monkeypatch) -> None:
+    now = datetime.now(UTC).isoformat()
+    state = research_planner(
+        {
+            "report_id": "rpt_collect_scraped_flag_test",
+            "topic": "Cursor AI",
+            "subject": "Cursor AI",
+            "subject_type": "product",
+            "candidate_sources": [],
+            "collected_notes": [],
+            "run_log": [],
+        }
+    )
+
+    def fake_search(query: str, intended_dimension: str, max_results: int):
+        return [
+            CandidateSource(
+                source_id="src_cursor_blog",
+                url="https://cursor.com/blog/example",
+                title="Cursor blog",
+                source_domain="cursor.com",
+                source_type="official_blog",
+                source_tier="tier_1_primary",
+                source_score=3.0,
+                intended_dimension="vertical",
+                retrieved_at=now,
+            )
+        ]
+
+    def fake_scrape(url: str, query: str, intended_dimension: str):
+        return CollectedNote(
+            note_id="note_cursor_blog",
+            query=query,
+            tool_name="firecrawl_scrape",
+            title="Cursor blog",
+            url=url,
+            source_domain="cursor.com",
+            raw_markdown_excerpt="Cursor published product evolution evidence.",
+            intended_dimension=intended_dimension,
+            retrieved_at=now,
+        )
+
+    monkeypatch.setattr(collect_info_module, "search_tavily", fake_search)
+    monkeypatch.setattr(collect_info_module, "scrape_firecrawl", fake_scrape)
+
+    result = collect_info_module.collect_info(state)
+
+    assert result["candidate_sources"][0].was_scraped is True
+    assert result["candidate_sources"][0].scrape_failed is False
 
 
 

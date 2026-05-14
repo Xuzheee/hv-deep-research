@@ -89,6 +89,41 @@ def test_source_ranker_filters_and_sorts_sources() -> None:
     assert ranked[0].source_score > ranked[1].source_score
 
 
+def test_source_ranker_treats_cursor_official_domains_as_primary() -> None:
+    candidates = [
+        CandidateSource(
+            source_id="cursor_blog",
+            url="https://cursor.com/blog/example",
+            title="Cursor official blog",
+            source_domain="cursor.com",
+            source_type="official_blog",
+            source_tier="unknown",
+            source_score=0,
+            intended_dimension="vertical",
+            retrieved_at="2026-05-08T00:00:00+00:00",
+            freshness="current",
+        ),
+        CandidateSource(
+            source_id="cursor_docs",
+            url="https://docs.cursor.com/context/rules",
+            title="Cursor docs",
+            source_domain="docs.cursor.com",
+            source_type="official_docs",
+            source_tier="unknown",
+            source_score=0,
+            intended_dimension="both",
+            retrieved_at="2026-05-08T00:00:00+00:00",
+            freshness="current",
+        ),
+    ]
+
+    ranked = rank_candidate_sources(candidates)
+
+    assert {source.source_id for source in ranked} == {"cursor_blog", "cursor_docs"}
+    assert all(source.source_tier == "tier_1_primary" for source in ranked)
+
+
+
 def test_tavily_wrapper_returns_ranked_mock_sources_without_key() -> None:
     results = search_tavily("GPT-4o", max_results=2)
 

@@ -250,6 +250,88 @@ def test_evidence_filter_fallback_uses_specific_claim() -> None:
 
 
 
+def test_evidence_filter_fallback_uses_candidate_source_type_when_note_has_no_guess() -> None:
+    state = base_state()
+    state["collected_notes"][0].source_type_guess = None
+    state["candidate_sources"][0].source_type = "official_blog"
+
+    result = evidence_filter(state)
+
+    assert result["evidence_cards"][0].source_type == "official_blog"
+
+
+
+def test_evidence_filter_fallback_prefers_clean_snippet_over_noisy_markdown_tail() -> None:
+    state = base_state()
+    state["collected_notes"][0].snippet = "Cursor introduced enterprise controls for larger engineering teams."
+    state["collected_notes"][0].raw_markdown_excerpt = (
+        "# Cursor announcement\n\n"
+        "![Hero image](https://example.com/hero.png)\n\n"
+        "Table of contents\n\n"
+        "0:00 en0:00 PlayPause MuteUnmute Enter fullscreen modeExit fullscreen mode\n\n"
+        "Privacy Policy Terms Cookie preferences Subscribe to our newsletter "
+        + "x" * 900
+    )
+
+    result = evidence_filter(state)
+    quote = result["evidence_cards"][0].supporting_quote
+
+    assert quote == "Cursor introduced enterprise controls for larger engineering teams."
+    assert "PlayPause" not in quote
+    assert "Table of contents" not in quote
+    assert "Privacy Policy" not in quote
+
+
+
+def test_evidence_filter_keeps_good_llm_cards_when_one_note_fails_parsing(monkeypatch) -> None:
+    state = base_state()
+    state["collected_notes"] = [
+        sample_note().model_copy(
+            update={
+                "note_id": "note_good",
+                "url": "https://example.com/good",
+                "raw_markdown_excerpt": "GPT-4o launched with credible product evidence.",
+            }
+        ),
+        sample_note().model_copy(
+            update={
+                "note_id": "note_bad",
+                "url": "https://example.com/bad",
+                "raw_markdown_excerpt": "Malformed model response should only affect this note.",
+            }
+        ),
+    ]
+    state["candidate_sources"] = [
+        sample_source().model_copy(update={"url": "https://example.com/good"}),
+        sample_source().model_copy(update={"url": "https://example.com/bad"}),
+    ]
+
+    def fake_complete_json(prompt, schema, system_prompt=None):
+        if "example.com/bad" in prompt:
+            raise ValueError("bad json")
+        return schema(
+            is_relevant=True,
+            relevance_reason="Useful product evidence.",
+            selected_passages=[
+                {
+                    "quote": "GPT-4o launched with credible product evidence.",
+                    "why_it_matters": "Useful product evidence.",
+                    "dimension": "vertical",
+                    "relevance_score": 88,
+                }
+            ],
+        )
+
+    monkeypatch.setattr(evidence_filter_module, "is_llm_configured", lambda: True)
+    monkeypatch.setattr(evidence_filter_module, "complete_json", fake_complete_json)
+
+    result = evidence_filter(state)
+
+    assert any(card.claim == "Useful product evidence." for card in result["evidence_cards"])
+    assert any(log["node"] == "evidence_filter" and "bad json" in log["message"] for log in result["run_log"])
+
+
+
 def test_evidence_filter_drops_noisy_notes_before_fallback() -> None:
     state = base_state()
     state["collected_notes"] = [
@@ -361,6 +443,78 @@ def test_evidence_filter_propagates_source_tier_into_cards(monkeypatch) -> None:
     result = evidence_filter(state)
 
     assert result["evidence_cards"][0].source_tier == "tier_1_primary"
+
+
+
+def test_evidence_filter_supplements_partial_llm_selection_with_usable_notes(monkeypatch) -> None:
+    state = base_state()
+    official_note = sample_note().model_copy(
+        update={
+            "note_id": "note_official",
+            "url": "https://example.com/official",
+            "source_domain": "example.com",
+            "raw_markdown_excerpt": "GPT-4o provides cited product evidence for research workflows.",
+            "intended_dimension": "vertical",
+        }
+    )
+    docs_note = sample_note().model_copy(
+        update={
+            "note_id": "note_docs",
+            "url": "https://docs.example.com/api",
+            "source_domain": "docs.example.com",
+            "title": "GPT-4o API docs",
+            "snippet": "GPT-4o API docs describe capability boundaries for developers.",
+            "raw_markdown_excerpt": "GPT-4o API docs describe capability boundaries for developers and enterprise teams.",
+            "intended_dimension": "horizontal",
+        }
+    )
+    state["collected_notes"] = [official_note, docs_note]
+    state["candidate_sources"] = [
+        sample_source().model_copy(
+            update={
+                "url": "https://example.com/official",
+                "source_domain": "example.com",
+                "source_tier": "tier_1_primary",
+                "intended_dimension": "vertical",
+            }
+        ),
+        sample_source().model_copy(
+            update={
+                "url": "https://docs.example.com/api",
+                "source_domain": "docs.example.com",
+                "source_tier": "tier_1_primary",
+                "intended_dimension": "horizontal",
+            }
+        ),
+    ]
+
+    def fake_complete_json(prompt, schema, system_prompt=None):
+        if "docs.example.com" in prompt:
+            return schema(is_relevant=False, relevance_reason="LLM missed usable docs evidence.", selected_passages=[])
+        return schema(
+            is_relevant=True,
+            relevance_reason="Useful launch evidence.",
+            selected_passages=[
+                {
+                    "quote": "GPT-4o provides cited product evidence for research workflows.",
+                    "why_it_matters": "Useful launch evidence.",
+                    "dimension": "vertical",
+                    "relevance_score": 88,
+                }
+            ],
+        )
+
+    monkeypatch.setattr(evidence_filter_module, "is_llm_configured", lambda: True)
+    monkeypatch.setattr(evidence_filter_module, "complete_json", fake_complete_json)
+
+    result = evidence_filter(state)
+
+    assert {card.url for card in result["evidence_cards"]} == {
+        "https://example.com/official",
+        "https://docs.example.com/api",
+    }
+    assert {card.dimension for card in result["evidence_cards"]} == {"vertical", "horizontal"}
+    assert all(card.source_tier == "tier_1_primary" for card in result["evidence_cards"])
 
 
 
@@ -634,6 +788,37 @@ def test_core_prompts_include_hv_research_rules() -> None:
 
 
 
+def test_analysis_prompts_require_judgment_first_not_evidence_summary() -> None:
+    vertical_prompt = prompts_module.build_vertical_analysis_prompt("GPT-4o", '[{"evidence_id":"ev_001"}]')
+    horizontal_prompt = prompts_module.build_horizontal_analysis_prompt("GPT-4o", '[{"evidence_id":"ev_001"}]')
+
+    assert "先给判断，再展开理由和证据" in vertical_prompt
+    assert "不要逐条复述 evidence cards" in vertical_prompt
+    assert "每个阶段先下结论" in vertical_prompt
+    assert "先判断竞争位置，再展开理由和证据" in horizontal_prompt
+    assert "不要把竞品写成 evidence cards 摘要" in horizontal_prompt
+    assert "解释用户为什么选择或拒绝" in horizontal_prompt
+
+
+
+def test_evidence_and_cross_insight_prompts_include_json_schema_contracts() -> None:
+    relevance_prompt = prompts_module.build_relevance_selection_prompt("GPT-4o", sample_note())
+    cross_prompt = prompts_module.build_cross_insights_prompt(
+        subject="GPT-4o",
+        vertical_json='{"full_text":"Vertical"}',
+        horizontal_json='{"full_text":"Horizontal"}',
+        evidence_cards_json='[{"evidence_id":"ev_001"}]',
+    )
+
+    assert "RelevanceSelectionResult" in relevance_prompt
+    assert "selected_passages" in relevance_prompt
+    assert "vertical" in relevance_prompt and "horizontal" in relevance_prompt and "both" in relevance_prompt
+    assert "cross_insights" in cross_prompt
+    assert "insight_id" in cross_prompt
+    assert "supporting_evidence_ids" in cross_prompt
+
+
+
 def test_relevance_prompt_prioritizes_diverse_evidence_without_noise() -> None:
     prompt = prompts_module.build_relevance_selection_prompt("GPT-4o", sample_note())
 
@@ -714,6 +899,31 @@ def test_build_narrative_report_prompt_pushes_story_like_sections() -> None:
     assert "标题要像章节标题" in prompt
     assert "纵向部分的每个阶段都要先下结论" in prompt
     assert "横向部分的每个竞品都要先说明它活成了什么样" in prompt
+
+
+
+def test_build_narrative_report_prompt_requires_article_level_continuity() -> None:
+    overview = OverviewTabData(
+        product_overview="A multimodal assistant.",
+        release_updates=[],
+        key_findings=[],
+        evidence_groups=[],
+        risk_notes=[],
+    )
+
+    prompt = prompts_module.build_narrative_report_prompt(
+        subject="GPT-4o",
+        overview_json=overview.model_dump_json(),
+        vertical_json='{"full_text":"Vertical context.","stages":[],"key_turning_points":[],"path_dependency_summary":"Path"}',
+        horizontal_json='{"full_text":"Horizontal context.","competitor_scenario":"few_competitors","competitor_matrix":[],"capability_boundaries":[],"positioning_summary":"Positioning","recommendations":[]}',
+        evidence_cards_json='[{"evidence_id":"ev_001","claim":"Claim","evidence":"Evidence"}]',
+    )
+
+    assert "完整研究文章" in prompt
+    assert "段落之间要有承接" in prompt
+    assert "不要按字段拼贴" in prompt
+    assert "不要写成卡片集合" in prompt
+    assert "开头、主体和收束判断" in prompt
 
 
 
