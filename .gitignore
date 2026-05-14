@@ -17,3 +17,5 @@ __pycache__/
 *.db
 backend/app/outputs/reports/*
 !backend/app/outputs/reports/.gitkeep
+
+.vercel
