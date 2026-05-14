@@ -23,7 +23,6 @@ services:
   - type: web
     name: hv-deep-research-web
     runtime: static
-    plan: free
     rootDir: Design AI Research Dashboard
     buildCommand: npm install && npm run build
     staticPublishPath: dist
