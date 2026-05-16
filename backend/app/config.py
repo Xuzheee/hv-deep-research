@@ -4,6 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     database_url: str = "sqlite:///./hv_analysis.db"
     backend_cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    backend_cors_origin_regex: str = ""
     tavily_api_key: str = ""
     firecrawl_api_key: str = ""
     llm_provider: str = "mock"
@@ -22,6 +23,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.backend_cors_origins.split(",") if origin.strip()]
+
+    @property
+    def cors_origin_regex(self) -> str | None:
+        return self.backend_cors_origin_regex.strip() or None
 
 
 settings = Settings()

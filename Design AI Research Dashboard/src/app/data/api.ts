@@ -1,6 +1,9 @@
 import type { DiagnosticsStatusResponse, DiagnosticsValidationResponse, HistoryReport, SubjectType } from "./types";
 
-const DEFAULT_API_BASE_URL = "";
+const DEFAULT_API_BASE_URL =
+  typeof window !== "undefined" && window.location.hostname === "hv-deep-research-web.onrender.com"
+    ? "https://hv-deep-research-api.onrender.com"
+    : "";
 const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? DEFAULT_API_BASE_URL;
 
